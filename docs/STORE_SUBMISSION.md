@@ -36,6 +36,16 @@ Flow Translate supports a translation dot, keyboard shortcut, context menu, and 
 | 可选 `https://*/*` | 连接用户自行配置的 HTTPS 模型 API。扩展仅在用户保存或测试模型配置时，为该 API 域名申请访问权限；不连接开发者控制的翻译服务器。 |
 | localhost HTTP | 连接用户设备上的 Ollama、LM Studio、Xinference、vLLM 或 SGLang，仅允许 localhost/127.0.0.1/::1。 |
 
+## 请求主机权限的理由
+
+中文（可直接填写到商店审核表）：
+
+流译助手允许用户接入自行选择的大模型 API，因此无法在发布时预先确定模型服务的域名。扩展仅在用户主动保存或测试模型配置时，请求该 API 域名的可选主机权限，并仅使用此权限从扩展后台向该模型服务发送用户主动提交的待翻译文本、接收翻译结果。该权限不会用于读取模型服务网站页面、跟踪浏览记录、投放广告或向开发者服务器传输数据。普通网页上的内容脚本权限仅用于检测用户主动选择的文字并显示翻译浮窗。
+
+English (for store review forms):
+
+Flow Translate lets users connect a language-model API of their choice, so the API domain cannot be predetermined at publication time. The extension requests optional host access to that specific API domain only when the user saves or tests a model profile. The permission is used solely by the extension background context to send user-submitted text to that model service and receive translation results. It is not used to read pages on the model provider's website, track browsing, serve ads, or transmit data to a developer-operated server. Content-script access on ordinary webpages is used only to detect text actively selected by the user and render the translation overlay.
+
 ## Chrome Privacy Practices 建议答案
 
 - Personally identifiable information: No（除非未来加入账号）。

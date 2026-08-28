@@ -46,6 +46,11 @@ async function ensureApiPermission(apiBaseUrl: string): Promise<boolean> {
   if (url.protocol !== "https:") return true;
   const origin = `${url.origin}/*`;
   if (await browser.permissions.contains({ origins: [origin] })) return true;
+  const english = document.documentElement.lang === "en";
+  const approved = window.confirm(english
+    ? `Flow Translate needs access to ${url.origin} only to send translation requests to the model service you configured. It will not use this permission to read that website. Continue?`
+    : `流译助手需要访问 ${url.origin}，仅用于向你配置的模型服务发送翻译请求，不会使用该权限读取该网站内容。是否继续授权？`);
+  if (!approved) return false;
   return browser.permissions.request({ origins: [origin] });
 }
 
@@ -64,7 +69,7 @@ function App() {
   const en = form.uiLanguage === "en";
   const t = (zh: string, english: string) => en ? english : zh;
   useEffect(() => { getSettings().then(setForm); }, []);
-  useEffect(() => { document.title = t("流译助手设置", "Flow Translate Settings"); }, [form.uiLanguage]);
+  useEffect(() => { document.title = t("流译助手设置", "Flow Translate Settings"); document.documentElement.lang = en ? "en" : "zh-CN"; }, [form.uiLanguage]);
   useEffect(() => {
     if (activeSection === "history") void loadHistory();
     if (activeSection === "models") void loadModelUsage();
@@ -390,7 +395,7 @@ function App() {
         <div className="modal-body">
           <div className="grid"><label>{t("服务类型", "Provider type")}<select value={editingProfile.provider} onChange={(event) => { const provider = event.target.value as ProviderType; const definition = PROVIDERS.find((item) => item.id === provider)!; setEditingProfile({ ...editingProfile, provider, apiBaseUrl: definition.defaultUrl, authMode: provider === "anthropic" ? "x-api-key" : "bearer" }); }}>{PROVIDERS.map((provider) => <option key={provider.id} value={provider.id}>{providerDisplayName(provider.id, en)}</option>)}</select></label><label>{t("配置名称", "Profile name")}<input value={editingProfile.name} onChange={(event) => setEditingProfile({ ...editingProfile, name: event.target.value })} placeholder={t("例如：本地推理服务", "For example: Local inference")} /></label></div>
           <label>{t("模型名称", "Model name")}<input value={editingProfile.model} onChange={(event) => setEditingProfile({ ...editingProfile, model: event.target.value })} placeholder={PROVIDERS.find((item) => item.id === editingProfile.provider)?.modelPlaceholder} /></label>
-          <label>API Base URL<input value={editingProfile.apiBaseUrl} onChange={(event) => setEditingProfile({ ...editingProfile, apiBaseUrl: event.target.value })} placeholder="https://api.openai.com/v1" /></label>
+          <label>API Base URL<input value={editingProfile.apiBaseUrl} onChange={(event) => setEditingProfile({ ...editingProfile, apiBaseUrl: event.target.value })} placeholder="https://api.openai.com/v1" /><small>{t("保存或测试时，扩展会请求访问该 API 域名，仅用于发送模型翻译请求，不会读取该网站内容。", "When saving or testing, the extension requests access to this API domain only to send model translation requests; it does not read that website's content.")}</small></label>
           <label>API Key{!["openai-compatible", "anthropic", "gemini"].includes(editingProfile.provider) && t("（可选）", " (optional)")}<input type="password" autoComplete="new-password" value={editingProfile.apiKey} onChange={(event) => setEditingProfile({ ...editingProfile, apiKey: event.target.value })} placeholder={["openai-compatible", "anthropic", "gemini"].includes(editingProfile.provider) ? "API Key" : t("本地服务通常无需填写", "Usually not required for local services")} /></label>
           {editingProfile.provider === "anthropic" && <label>{t("鉴权方式", "Authentication")}<select value={editingProfile.authMode} onChange={(event) => setEditingProfile({ ...editingProfile, authMode: event.target.value as ModelProfile["authMode"] })}><option value="x-api-key">x-api-key（Anthropic 官方）</option><option value="bearer">Authorization Bearer（常见第三方）</option><option value="both">{t("同时发送（仅兼容需要时）", "Send both (compatibility only)")}</option></select></label>}
           <div className="grid"><label>Temperature<input type="number" min="0" max="2" step="0.1" value={editingProfile.temperature} onChange={(event) => setEditingProfile({ ...editingProfile, temperature: Number(event.target.value) })} /></label><label>{t("超时时间（秒）", "Timeout (seconds)")}<input type="number" min="5" max="300" value={editingProfile.timeoutMs / 1000} onChange={(event) => setEditingProfile({ ...editingProfile, timeoutMs: Number(event.target.value) * 1000 })} /></label><label>{t("最大输出 Token", "Maximum output tokens")}<input type="number" min="64" max="131072" value={editingProfile.maxOutputTokens} onChange={(event) => setEditingProfile({ ...editingProfile, maxOutputTokens: Number(event.target.value) })} /></label></div>
