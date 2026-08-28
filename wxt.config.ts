@@ -3,10 +3,11 @@ import { defineConfig } from "wxt";
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   manifest: {
-    name: "流式划词翻译",
+    name: "流译助手",
     description: "选中网页文本，使用你自己的大模型 API 进行流式翻译。",
-    permissions: ["storage", "contextMenus"],
-    host_permissions: ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+    permissions: ["storage", "contextMenus", "sidePanel"],
+    host_permissions: ["http://localhost/*", "http://127.0.0.1/*", "http://[::1]/*"],
+    optional_host_permissions: ["https://*/*"],
     commands: {
       "translate-selection": {
         suggested_key: { default: "Alt+T" },
@@ -14,7 +15,24 @@ export default defineConfig({
       }
     },
     action: {
-      default_title: "打开划词翻译设置"
+      default_title: "打开流译助手",
+      default_icon: {
+        "16": "icon/16.png",
+        "32": "icon/32.png",
+        "48": "icon/48.png",
+        "128": "icon/128.png"
+      }
+    },
+    icons: {
+      "16": "icon/16.png",
+      "32": "icon/32.png",
+      "48": "icon/48.png",
+      "128": "icon/128.png"
+    },
+    side_panel: { default_path: "sidepanel.html" },
+    minimum_chrome_version: "116",
+    content_security_policy: {
+      extension_pages: "script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     }
   }
 });
