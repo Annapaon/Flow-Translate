@@ -34,6 +34,10 @@ const styles = `
   .field:last-child { margin-bottom:0; }
   .label { margin:0 0 5px 2px; color:#64748b; font-size:11px; font-weight:700; letter-spacing:.06em; }
   .source,.result { padding:10px 11px; overflow:auto; border:1px solid #e2e8f0; border-radius:9px; white-space:pre-wrap; word-break:break-word; user-select:text; }
+  .box-wrap { position:relative; }
+  .box-wrap .source,.box-wrap .result { padding-bottom:36px; }
+  .copy-text { position:absolute; left:7px; bottom:7px; display:grid; place-items:center; width:25px; height:23px; border:1px solid #dbe2ec; border-radius:6px; cursor:pointer; color:#64748b; background:rgba(255,255,255,.94); font:15px/1 system-ui,sans-serif; box-shadow:0 1px 4px rgba(15,23,42,.08); }
+  .copy-text:hover { color:#6d28d9; border-color:#c4b5fd; background:#f5f3ff; }
   .source { max-height:100px; color:#64748b; background:#f8fafc; font-size:12px; }
   .result { min-height:55px; max-height:180px; color:#172033; background:#fff; }
   .thinking { margin-bottom:10px; overflow:hidden; border:1px solid #ddd6fe; border-radius:8px; background:#faf8ff; }
@@ -54,6 +58,7 @@ const styles = `
     .thinking { border-color:#4c3d70; background:#211b2f; }
     .thinking-head { color:#c4b5fd; background:#2d2440; }
     .thinking-body { color:#b8afc7; }
+    .copy-text { color:#aeb8c8; border-color:#475569; background:#1f2937; }
     .source,.icon { color:#aeb8c8; }
   }
 `;
@@ -86,6 +91,18 @@ function readSelection(): SelectionSnapshot | null {
   return { text, x: rect.right + 7, y: rect.bottom + 7 };
 }
 
+function isCurrentSiteBlocked(blockedSites: string[]): boolean {
+  const hostname = location.hostname.toLowerCase();
+  return blockedSites.some((value) => {
+    const normalized = value.trim().toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .replace(/^\*\./, "")
+      .split("/")[0]
+      ?.split(":")[0];
+    return Boolean(normalized) && (hostname === normalized || hostname.endsWith(`.${normalized}`));
+  });
+}
+
 function App() {
   const [settings, setSettings] = useState<TranslatorSettings>(DEFAULT_SETTINGS);
   const [selection, setSelection] = useState<SelectionSnapshot | null>(null);
@@ -95,6 +112,8 @@ function App() {
   const [reasoning, setReasoning] = useState("");
   const [reasoningOpen, setReasoningOpen] = useState(true);
   const [error, setError] = useState("");
+  const [wasCached, setWasCached] = useState(false);
+  const [copiedField, setCopiedField] = useState<"source" | "result" | null>(null);
   const [manualPosition, setManualPosition] = useState<Point | null>(null);
   const portRef = useRef<ReturnType<typeof browser.runtime.connect> | null>(null);
   const requestIdRef = useRef<string | null>(null);
@@ -140,6 +159,7 @@ function App() {
     setReasoning("");
     setReasoningOpen(true);
     setError("");
+    setWasCached(false);
     setStatus("loading");
 
     const requestId = crypto.randomUUID();
@@ -159,6 +179,7 @@ function App() {
       } else if (message.type === "finish") {
         settled = true;
         setStatus("done");
+        setWasCached(Boolean(message.cached));
         setReasoningOpen(false);
         if (requestIdRef.current === requestId) requestIdRef.current = null;
         port.disconnect();
@@ -180,7 +201,13 @@ function App() {
         setError("与翻译后台的连接已断开，请刷新页面后重试");
       }
     });
-    port.postMessage({ type: "translate", requestId, text: snapshot.text });
+    port.postMessage({
+      type: "translate",
+      requestId,
+      text: snapshot.text,
+      pageTitle: document.title,
+      pageUrl: location.href
+    });
   }
 
   function startDragging(event: React.PointerEvent<HTMLElement>) {
@@ -217,10 +244,23 @@ function App() {
     }
   }
 
+  async function copyText(field: "source" | "result", text: string) {
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    window.setTimeout(() => setCopiedField((current) => current === field ? null : current), 1_200);
+  }
+
   useEffect(() => {
     const update = (event: Event) => {
       if (event.composedPath().some((node) => node instanceof HTMLElement && node.id === "stream-select-translator-root")) return;
       if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
+      if (isCurrentSiteBlocked(settings.blockedSites)) {
+        cancelCurrent();
+        setOpen(false);
+        setSelection(null);
+        return;
+      }
       const snapshot = readSelection();
       if (!snapshot || snapshot.text.length < settings.minChars) {
         cancelCurrent();
@@ -248,10 +288,11 @@ function App() {
       document.removeEventListener("keyup", update, true);
       if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
     };
-  }, [settings.triggerMode, settings.minChars, settings.maxChars, open, selection?.text]);
+  }, [settings.triggerMode, settings.minChars, settings.maxChars, settings.blockedSites, open, selection?.text]);
 
   useEffect(() => {
     const listener = (message: { type?: string; text?: string }) => {
+      if (isCurrentSiteBlocked(settings.blockedSites)) return;
       if (message.type === "external-translate" && message.text) {
         const snapshot = readSelection() ?? { text: message.text, x: window.innerWidth / 2, y: 80 };
         translate({ ...snapshot, text: message.text.slice(0, settings.maxChars) });
@@ -262,7 +303,14 @@ function App() {
     };
     browser.runtime.onMessage.addListener(listener);
     return () => browser.runtime.onMessage.removeListener(listener);
-  }, [settings.maxChars]);
+  }, [settings.maxChars, settings.blockedSites]);
+
+  useEffect(() => {
+    if (!isCurrentSiteBlocked(settings.blockedSites)) return;
+    cancelCurrent();
+    setOpen(false);
+    setSelection(null);
+  }, [settings.blockedSites]);
 
   useEffect(() => () => {
     cancelCurrent();
@@ -286,7 +334,6 @@ function App() {
         >
           <div className="brand"><span className="dot" />翻译为{settings.targetLanguage}</div>
           <div className="actions">
-            <button className="icon" onClick={() => navigator.clipboard.writeText(result)} disabled={!result}>复制</button>
             <button className="icon" onClick={() => translate(selection)}>重试</button>
             <button className="icon" onClick={() => { cancelCurrent(); setOpen(false); setSelection(null); }}>关闭</button>
           </div>
@@ -294,27 +341,33 @@ function App() {
         <div className="body">
           <div className="field">
             <div className="label">原文</div>
-            <div className="source">{selection.text}</div>
+            <div className="box-wrap">
+              <div className="source">{selection.text}</div>
+              <button className="copy-text" title="复制原文" aria-label="复制原文" onClick={() => copyText("source", selection.text)}>{copiedField === "source" ? "✓" : "⧉"}</button>
+            </div>
           </div>
           <div className="field">
             <div className="label">译文</div>
-            <div ref={resultRef} className={`result ${status === "error" ? "error" : ""}`}>
-              {settings.enableThinking && (reasoning || status === "loading" || status === "streaming") && (
-                <div className="thinking">
-                  <button className="thinking-head" onClick={() => setReasoningOpen((value) => !value)}>
-                    <span>思考过程</span><span>{reasoningOpen ? "收起" : "展开"}</span>
-                  </button>
-                  {reasoningOpen && <div className="thinking-body">{reasoning || "等待模型返回思考过程…"}</div>}
-                </div>
-              )}
-              {status === "loading" && <span className="placeholder">正在连接模型…</span>}
-              {status === "error" ? error : result}
-              {(status === "loading" || status === "streaming") && <span className="cursor" />}
+            <div className="box-wrap">
+              <div ref={resultRef} className={`result ${status === "error" ? "error" : ""}`}>
+                {settings.enableThinking && (reasoning || status === "loading" || status === "streaming") && (
+                  <div className="thinking">
+                    <button className="thinking-head" onClick={() => setReasoningOpen((value) => !value)}>
+                      <span>思考过程</span><span>{reasoningOpen ? "收起" : "展开"}</span>
+                    </button>
+                    {reasoningOpen && <div className="thinking-body">{reasoning || "等待模型返回思考过程…"}</div>}
+                  </div>
+                )}
+                {status === "loading" && <span className="placeholder">正在连接模型…</span>}
+                {status === "error" ? error : result}
+                {(status === "loading" || status === "streaming") && <span className="cursor" />}
+              </div>
+              <button className="copy-text" title="复制译文" aria-label="复制译文" disabled={!result} onClick={() => copyText("result", result)}>{copiedField === "result" ? "✓" : "⧉"}</button>
             </div>
           </div>
         </div>
         <footer className="foot">
-          <span>{selection.text.length} 字符 · {settings.model}</span>
+          <span>{selection.text.length} 字符 · {settings.model}{wasCached ? " · 已缓存" : ""}</span>
           <button className="link" onClick={() => browser.runtime.openOptionsPage()}>设置</button>
         </footer>
       </section>

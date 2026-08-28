@@ -1,6 +1,14 @@
 import { getSettings } from "../shared/settings";
 import type { ClientMessage, ServerMessage, TestConnectionResponse, TranslatorSettings } from "../shared/types";
 import { streamTranslation, testConnection } from "../core/openai";
+import {
+  addHistory,
+  cacheTranslation,
+  clearHistoryAndCache,
+  createCacheKey,
+  findCachedTranslation,
+  getHistory
+} from "../shared/history";
 
 export default defineBackground(() => {
   const controllers = new Map<string, AbortController>();
@@ -47,15 +55,45 @@ export default defineBackground(() => {
 
       try {
         const settings = await getSettings();
+        const cacheKey = createCacheKey(message.text, settings);
+        const recordHistory = (translatedText: string) => settings.enableHistory
+          ? addHistory({
+              sourceText: message.text,
+              translatedText,
+              targetLanguage: settings.targetLanguage,
+              model: settings.model,
+              pageTitle: message.pageTitle,
+              pageUrl: message.pageUrl
+            })
+          : Promise.resolve();
+
+        if (settings.enableCache) {
+          const cached = await findCachedTranslation(cacheKey);
+          if (cached) {
+            send({ type: "delta", requestId: message.requestId, text: cached });
+            await recordHistory(cached);
+            send({ type: "finish", requestId: message.requestId, cached: true });
+            return;
+          }
+        }
+
         const timeout = setTimeout(() => controller.abort("timeout"), settings.timeoutMs);
+        let translatedText = "";
         try {
           await streamTranslation(
             message.text,
             settings,
             controller.signal,
-            (text) => send({ type: "delta", requestId: message.requestId, text }),
+            (text) => {
+              translatedText += text;
+              send({ type: "delta", requestId: message.requestId, text });
+            },
             (text) => send({ type: "reasoning", requestId: message.requestId, text })
           );
+          await Promise.all([
+            settings.enableCache ? cacheTranslation(cacheKey, translatedText) : Promise.resolve(),
+            recordHistory(translatedText)
+          ]);
           send({ type: "finish", requestId: message.requestId });
         } finally {
           clearTimeout(timeout);
@@ -81,15 +119,22 @@ export default defineBackground(() => {
   });
 
   browser.runtime.onMessage.addListener(async (message: { type?: string; settings?: TranslatorSettings }) => {
-    if (message.type !== "test-connection" || !message.settings) return undefined;
-    try {
-      await testConnection(message.settings);
-      return { ok: true, message: "连接成功，模型已返回内容" } satisfies TestConnectionResponse;
-    } catch (error) {
-      return {
-        ok: false,
-        message: error instanceof Error ? error.message : "连接失败"
-      } satisfies TestConnectionResponse;
+    if (message.type === "get-history") return getHistory();
+    if (message.type === "clear-history") {
+      await clearHistoryAndCache();
+      return { ok: true };
     }
+    if (message.type === "test-connection" && message.settings) {
+      try {
+        await testConnection(message.settings);
+        return { ok: true, message: "连接成功，模型已返回内容" } satisfies TestConnectionResponse;
+      } catch (error) {
+        return {
+          ok: false,
+          message: error instanceof Error ? error.message : "连接失败"
+        } satisfies TestConnectionResponse;
+      }
+    }
+    return undefined;
   });
 });
