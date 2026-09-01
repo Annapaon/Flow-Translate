@@ -25,7 +25,7 @@
 
 ### 5. 安全措施
 
-云端模型地址必须使用 HTTPS；只有 localhost、127.0.0.1 或 ::1 可使用 HTTP。API Key 不会提供给网页内容脚本，错误信息会进行密钥脱敏。扩展不加载或执行远程代码。浏览器本地存储不是系统级密钥保险箱，请勿在不可信设备上保存重要密钥。
+云端模型地址必须使用 HTTPS；只有本机地址（localhost、127.0.0.1、::1）和局域网私有地址（如 192.168.*.*、10.*.*、172.16–172.31.*、169.254.*.* 或 *.local 主机名）可使用 HTTP。局域网 HTTP 地址在保存或测试时会单独请求访问权限。API Key 不会提供给网页内容脚本，错误信息会进行密钥脱敏。扩展不加载或执行远程代码。浏览器本地存储不是系统级密钥保险箱，请勿在不可信设备上保存重要密钥。
 
 ### 6. 用户控制与删除
 
@@ -66,7 +66,7 @@ Data is used only for user-requested translation, local cache, local history, an
 
 ### 5. Security
 
-Cloud endpoints must use HTTPS; HTTP is allowed only for localhost, 127.0.0.1, or ::1. API keys are not exposed to webpage content scripts, errors are redacted, and no remotely hosted code is loaded or executed. Browser local storage is not a system secret vault; do not store important keys on an untrusted device.
+Cloud endpoints must use HTTPS; HTTP is allowed only for loopback addresses (localhost, 127.0.0.1, ::1) and private LAN addresses (such as 192.168.*.*, 10.*.*, 172.16–172.31.*, 169.254.*.*, or *.local hostnames). Access to a LAN HTTP endpoint is requested separately when you save or test the profile. API keys are not exposed to webpage content scripts, errors are redacted, and no remotely hosted code is loaded or executed. Browser local storage is not a system secret vault; do not store important keys on an untrusted device.
 
 ### 6. User controls and deletion
 

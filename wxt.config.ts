@@ -7,7 +7,9 @@ export default defineConfig({
     description: "选中网页文本，使用你自己的大模型 API 进行流式翻译。",
     permissions: ["storage", "contextMenus", "sidePanel"],
     host_permissions: ["http://localhost/*", "http://127.0.0.1/*", "http://[::1]/*"],
-    optional_host_permissions: ["https://*/*"],
+    // https endpoints and LAN http endpoints are granted per-origin at
+    // runtime when the user saves or tests a model profile.
+    optional_host_permissions: ["https://*/*", "http://*/*"],
     commands: {
       "translate-selection": {
         suggested_key: { default: "Alt+T" },

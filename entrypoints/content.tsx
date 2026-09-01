@@ -105,8 +105,17 @@ function textControlCaretPoint(control: HTMLInputElement | HTMLTextAreaElement, 
 function readSelection(): SelectionSnapshot | null {
   const active = document.activeElement;
   if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
-    const start = active.selectionStart ?? 0;
-    const end = active.selectionEnd ?? 0;
+    // Input types without text selection support (email, number, date, …)
+    // throw InvalidStateError when the selection offsets are read.
+    let start: number | null;
+    let end: number | null;
+    try {
+      start = active.selectionStart;
+      end = active.selectionEnd;
+    } catch {
+      return null;
+    }
+    if (start === null || end === null) return null;
     const text = active.value.slice(start, end).trim();
     if (!text) return null;
     const rect = active.getBoundingClientRect();

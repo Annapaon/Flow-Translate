@@ -1,13 +1,14 @@
 {
   "name": "flow-translate",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
     "zip": "wxt zip",
-    "typecheck": "wxt prepare && tsc --noEmit"
+    "typecheck": "wxt prepare && tsc --noEmit",
+    "test": "jiti tests/test-core.mjs && jiti tests/run-shared.mjs"
   },
   "dependencies": {
     "@wxt-dev/module-react": "^1.2.2",

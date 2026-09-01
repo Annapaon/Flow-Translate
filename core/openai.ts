@@ -41,6 +41,29 @@ function httpError(status: number, body: string, english = false, secrets: strin
   );
 }
 
+/**
+ * fetch() rejects with a bare TypeError ("Failed to fetch") when the host
+ * is unreachable, DNS fails, or the connection is refused. Turn that into a
+ * readable cause so the settings page and the translation overlay can show
+ * why the model could not be reached. Kept retryable so transient network
+ * glitches still benefit from the retry logic.
+ */
+async function fetchModel(endpoint: string, init: RequestInit, english: boolean): Promise<Response> {
+  try {
+    return await fetch(endpoint, init);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new TranslationRequestError(
+        english
+          ? "Cannot reach the model service. Check that the API URL (including the port) is correct, the service is running, and this device can reach it — LAN services require being on the same local network."
+          : "无法连接到模型服务。请检查 API 地址（含端口）是否正确、服务是否已启动，以及当前设备能否访问该地址——局域网服务需要处于同一局域网内。",
+        true
+      );
+    }
+    throw error;
+  }
+}
+
 const OUTPUT_INSTRUCTIONS = {
   translation: "只输出译文。",
   explanation: "先输出译文，再用简短要点解释关键表达。",
@@ -86,7 +109,7 @@ async function readSse(response: Response, handle: (event: any) => void, english
 }
 
 async function streamAnthropic(text: string, settings: TranslatorSettings, signal: AbortSignal, onDelta: (delta: string) => void, onReasoning: (delta: string) => void) {
-  const base = validateApiUrl(settings.apiBaseUrl);
+  const base = validateApiUrl(settings.apiBaseUrl, settings.uiLanguage === "en");
   // Anthropic SDK-style base URLs omit `/v1`; official and compatible
   // gateways expect the Messages endpoint at `/v1/messages`. A URL already
   // ending in `/v1` or `/messages` is also accepted to avoid double-appending.
@@ -102,14 +125,33 @@ async function streamAnthropic(text: string, settings: TranslatorSettings, signa
     ...(authMode === "x-api-key" || authMode === "both" ? { "x-api-key": settings.apiKey.trim() } : {}),
     ...(authMode === "bearer" || authMode === "both" ? { Authorization: `Bearer ${settings.apiKey.trim()}` } : {})
   };
-  const response = await fetch(endpoint, {
+  const response = await fetchModel(endpoint, {
     method: "POST", signal,
     // Anthropic-compatible gateways commonly accept either the official
     // x-api-key header or Bearer authentication. Supplying both keeps the
     // profile portable, while custom headers can override either value.
     headers: { "Content-Type": "application/json", ...authHeaders, "anthropic-version": "2023-06-01", ...settings.customHeaders },
-    body: JSON.stringify({ model: settings.model.trim(), max_tokens: settings.maxOutputTokens, temperature: settings.temperature, stream: true, system: prompt.system, messages: [{ role: "user", content: prompt.user }] })
-  });
+    body: JSON.stringify({
+      model: settings.model.trim(),
+      max_tokens: settings.maxOutputTokens,
+      stream: true,
+      system: prompt.system,
+      messages: [{ role: "user", content: prompt.user }],
+      // Extended thinking must be requested explicitly, otherwise the API
+      // never emits thinking_delta. It requires a budget of at least 1024
+      // tokens below max_tokens, and rejects temperature values other than 1,
+      // so temperature is only sent when thinking is off. Profiles with too
+      // small a token limit fall back to a plain translation request.
+      ...(settings.enableThinking && settings.maxOutputTokens > 1_024
+        ? {
+            thinking: {
+              type: "enabled" as const,
+              budget_tokens: Math.min(Math.max(1_024, Math.floor(settings.maxOutputTokens / 2)), settings.maxOutputTokens - 1)
+            }
+          }
+        : { temperature: settings.temperature })
+    })
+  }, settings.uiLanguage === "en");
   let started = false;
   await readSse(response, (event) => {
     if (event.type !== "content_block_delta") return;
@@ -123,14 +165,14 @@ async function streamAnthropic(text: string, settings: TranslatorSettings, signa
 }
 
 async function streamGemini(text: string, settings: TranslatorSettings, signal: AbortSignal, onDelta: (delta: string) => void) {
-  const base = validateApiUrl(settings.apiBaseUrl);
+  const base = validateApiUrl(settings.apiBaseUrl, settings.uiLanguage === "en");
   const endpoint = `${base}/models/${encodeURIComponent(settings.model.trim())}:streamGenerateContent?alt=sse`;
   const prompt = prompts(text, settings);
-  const response = await fetch(endpoint, {
+  const response = await fetchModel(endpoint, {
     method: "POST", signal,
     headers: { "Content-Type": "application/json", "x-goog-api-key": settings.apiKey.trim(), ...settings.customHeaders },
     body: JSON.stringify({ system_instruction: { parts: [{ text: prompt.system }] }, contents: [{ role: "user", parts: [{ text: prompt.user }] }], generationConfig: { temperature: settings.temperature, maxOutputTokens: settings.maxOutputTokens } })
-  });
+  }, settings.uiLanguage === "en");
   let started = false;
   await readSse(response, (event) => {
     const value = (event.candidates?.[0]?.content?.parts ?? []).map((part: { text?: string }) => part.text ?? "").join("");
@@ -164,7 +206,7 @@ export async function streamTranslation(
   if (!settings.apiBaseUrl.trim() || !settings.model.trim()) {
     throw new Error(settings.uiLanguage === "en" ? "API URL and model name are required" : "API 地址和模型名称不能为空");
   }
-  settings = { ...settings, apiBaseUrl: validateApiUrl(settings.apiBaseUrl) };
+  settings = { ...settings, apiBaseUrl: validateApiUrl(settings.apiBaseUrl, settings.uiLanguage === "en") };
 
   if (settings.provider === "anthropic") return streamAnthropic(text, settings, signal, onDelta, onReasoning);
   if (settings.provider === "gemini") return streamGemini(text, settings, signal, onDelta);
@@ -186,7 +228,7 @@ export async function streamTranslation(
       ]
   };
 
-  const sendRequest = (includeThinkingSwitch: boolean, tokenField: "max_tokens" | "max_completion_tokens") => fetch(endpointFor(settings.apiBaseUrl), {
+  const sendRequest = (includeThinkingSwitch: boolean, tokenField: "max_tokens" | "max_completion_tokens") => fetchModel(endpointFor(settings.apiBaseUrl), {
     method: "POST",
     signal,
     headers: {
@@ -199,7 +241,7 @@ export async function streamTranslation(
       [tokenField]: settings.maxOutputTokens,
       ...(includeThinkingSwitch ? { enable_thinking: settings.enableThinking } : {})
     })
-  });
+  }, settings.uiLanguage === "en");
 
   // Explicitly send false because several compatible providers reason by
   // default. Strict OpenAI servers may reject the extension field, in which
@@ -236,7 +278,10 @@ export async function streamTranslation(
   const keepPartialTag = (value: string, tag: string): number => {
     const max = Math.min(value.length, tag.length - 1);
     for (let length = max; length > 0; length -= 1) {
-      if (tag.startsWith(value.slice(-length))) return length;
+      // The tags are plain ASCII, so a lowercased tail only matches when it is
+      // itself ASCII and length-preserving; comparing the tail (not the whole
+      // buffer) keeps Unicode case expansion from shifting the boundary.
+      if (tag.startsWith(value.slice(-length).toLowerCase())) return length;
     }
     return 0;
   };
@@ -257,12 +302,15 @@ export async function streamTranslation(
     contentBuffer += value;
     while (contentBuffer) {
       const tag = insideThinkTag ? "</think>" : "<think>";
-      const index = contentBuffer.toLowerCase().indexOf(tag);
-      if (index >= 0) {
-        const beforeTag = contentBuffer.slice(0, index);
+      // Match case-insensitively on the original buffer. Indexing a fully
+      // lowercased copy instead would misalign when a character changes
+      // length in lowercasing (e.g. "İ" → "i̇").
+      const match = (insideThinkTag ? /<\/think>/i : /<think>/i).exec(contentBuffer);
+      if (match?.index !== undefined) {
+        const beforeTag = contentBuffer.slice(0, match.index);
         if (insideThinkTag) emitReasoning(beforeTag);
         else emitAnswer(beforeTag);
-        contentBuffer = contentBuffer.slice(index + tag.length);
+        contentBuffer = contentBuffer.slice(match.index + match[0].length);
         insideThinkTag = !insideThinkTag;
         continue;
       }
@@ -313,7 +361,9 @@ export async function streamTranslation(
 
 export async function testConnection(settings: TranslatorSettings): Promise<void> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Math.min(settings.timeoutMs, 20_000));
+  const timeoutMs = Math.min(settings.timeoutMs, 20_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const english = settings.uiLanguage === "en";
   try {
     let received = false;
     await streamTranslation(
@@ -323,7 +373,18 @@ export async function testConnection(settings: TranslatorSettings): Promise<void
       () => { received = true; },
       () => { received = true; }
     );
-    if (!received) throw new Error(settings.uiLanguage === "en" ? "Connected, but the model returned no text" : "连接成功，但模型没有返回文本内容");
+    if (!received) throw new Error(english ? "Connected, but the model returned no text" : "连接成功，但模型没有返回文本内容");
+  } catch (error) {
+    // Only the timeout aborts the controller here, so an abort means the
+    // service never answered in time. Surface that as the cause instead of
+    // the raw AbortError text.
+    if (controller.signal.aborted) {
+      const seconds = Math.round(timeoutMs / 1_000);
+      throw new Error(english
+        ? `Connection timed out after ${seconds}s. Check that the model service is running and that the address and port are correct.`
+        : `连接超时（${seconds} 秒）。请检查模型服务是否已启动、地址和端口是否正确。`);
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }

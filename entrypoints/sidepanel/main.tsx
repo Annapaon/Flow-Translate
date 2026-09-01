@@ -13,7 +13,7 @@ function App() {
   const [status, setStatus] = useState("");
   const [running, setRunning] = useState(false);
   const portRef = useRef<ReturnType<typeof browser.runtime.connect> | null>(null);
-  const requestRef = useRef("");
+  const requestRef = useRef<string | null>(null);
   const en = settings.uiLanguage === "en";
   const t = (zh: string, english: string) => en ? english : zh;
 
@@ -23,8 +23,11 @@ function App() {
     const next = { ...settings, ...patch }; setSettings(next); await saveSettings(next);
   }
   function cancel() {
-    if (requestRef.current) portRef.current?.postMessage({ type: "cancel", requestId: requestRef.current });
-    portRef.current?.disconnect(); portRef.current = null; setRunning(false); setStatus(t("已取消", "Cancelled"));
+    try {
+      if (requestRef.current) portRef.current?.postMessage({ type: "cancel", requestId: requestRef.current });
+    } catch { /* The service worker already dropped the port. */ }
+    portRef.current?.disconnect(); portRef.current = null; requestRef.current = null;
+    setRunning(false); setStatus(t("已取消", "Cancelled"));
   }
   function translate() {
     if (!settings.privacyConsentAccepted) { setStatus(t("请先在插件弹窗或设置中确认数据处理说明", "Accept the data handling notice in the popup or settings first")); return; }
@@ -32,13 +35,28 @@ function App() {
     setResult(""); setRunning(true); setStatus(t("正在连接模型…", "Connecting to model…"));
     const requestId = crypto.randomUUID(); requestRef.current = requestId;
     const port = browser.runtime.connect({ name: "translation-stream" }); portRef.current = port;
+    let settled = false;
     port.onMessage.addListener((message: ServerMessage) => {
       if (message.requestId !== requestId) return;
       if (message.type === "start") setStatus(t("正在翻译…", "Translating…"));
-      if (message.type === "retry") setStatus(t("正在重新连接模型…", "Reconnecting to model…"));
+      if (message.type === "retry") { setResult(""); setStatus(t("正在重新连接模型…", "Reconnecting to model…")); }
       if (message.type === "delta") setResult((value) => value + message.text);
-      if (message.type === "finish") { setRunning(false); setStatus(message.cached ? t("已从缓存完成", "Completed from cache") : t("翻译完成", "Translation complete")); }
-      if (message.type === "error") { setRunning(false); setStatus(message.message); }
+      if (message.type === "finish") {
+        settled = true; requestRef.current = null; setRunning(false);
+        setStatus(message.cached ? t("已从缓存完成", "Completed from cache") : t("翻译完成", "Translation complete"));
+        port.disconnect(); if (portRef.current === port) portRef.current = null;
+      }
+      if (message.type === "error") {
+        settled = true; requestRef.current = null; setRunning(false); setStatus(message.message);
+        port.disconnect(); if (portRef.current === port) portRef.current = null;
+      }
+    });
+    port.onDisconnect.addListener(() => {
+      if (settled) return;
+      requestRef.current = null;
+      if (portRef.current === port) portRef.current = null;
+      setRunning(false);
+      setStatus(t("与翻译后台的连接已断开，请重试", "The translation service disconnected. Please try again."));
     });
     port.postMessage({ type: "translate", requestId, text: source, pageTitle: t("Side Panel 长文本翻译", "Side Panel translation") });
   }

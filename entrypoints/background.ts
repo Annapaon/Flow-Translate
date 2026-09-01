@@ -22,11 +22,21 @@ export default defineBackground(() => {
   void browser.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
 
   const retryDelay = (milliseconds: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(resolve, milliseconds);
-    signal.addEventListener("abort", () => {
+    // An already-aborted signal never fires another abort event, so check
+    // first to fail immediately instead of waiting out the whole delay.
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    const onAbort = () => {
       clearTimeout(timer);
       reject(signal.reason);
-    }, { once: true });
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 
   browser.runtime.onInstalled.addListener(() => {
@@ -39,13 +49,15 @@ export default defineBackground(() => {
 
   browser.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === "translate-selection" && info.selectionText && tab?.id) {
-      browser.tabs.sendMessage(tab.id, { type: "external-translate", text: info.selectionText });
+      // Tabs opened before the extension was installed have no content script.
+      browser.tabs.sendMessage(tab.id, { type: "external-translate", text: info.selectionText }).catch(() => {});
     }
   });
 
-  browser.commands.onCommand.addListener(async (command, tab) => {
+  browser.commands.onCommand.addListener((command, tab) => {
     if (command === "translate-selection" && tab?.id) {
-      await browser.tabs.sendMessage(tab.id, { type: "translate-current-selection" });
+      // Same as above: not every tab hosts a content script.
+      browser.tabs.sendMessage(tab.id, { type: "translate-current-selection" }).catch(() => {});
     }
   });
 
@@ -84,8 +96,13 @@ export default defineBackground(() => {
         return;
       }
 
-      if (message.type !== "translate" || typeof message.requestId !== "string" || message.requestId.length > 100 ||
-        typeof message.text !== "string" || message.text.length < 1 || message.text.length > 100_000) return;
+      if (message.type !== "translate" || typeof message.requestId !== "string" || message.requestId.length > 100) return;
+      if (typeof message.text !== "string" || message.text.length < 1 || message.text.length > 100_000) {
+        // Reject explicitly instead of dropping the message, so the caller's
+        // UI does not wait forever for a reply that never comes.
+        send({ type: "error", requestId: message.requestId, message: "翻译文本为空或超出长度限制 / The text is empty or exceeds the length limit" });
+        return;
+      }
 
       portControllers.get(message.requestId)?.abort();
       const controller = new AbortController();

@@ -4,6 +4,17 @@ import { DEFAULT_PUBLIC_SETTINGS, DEFAULT_SCENE_PROMPTS, DEFAULT_SETTINGS, type 
 const settingsItem = storage.defineItem<TranslatorSettings>("local:translatorSettings", {
   defaultValue: DEFAULT_SETTINGS
 });
+
+/**
+ * Clamp a numeric setting to its allowed range. Number inputs let users clear
+ * the field (Number("") === 0) or type out-of-range values, and the HTML
+ * min/max attributes do not prevent either; 0 values here are silently saved
+ * and then break translation (e.g. timeoutMs: 0 aborts every request). This
+ * is the single choke point through which every settings read/write passes.
+ */
+function clampNumber(value: number | undefined, min: number, max: number, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
 const publicSettingsItem = storage.defineItem<PublicTranslatorSettings>("local:publicTranslatorSettings", { defaultValue: DEFAULT_PUBLIC_SETTINGS });
 
 function toPublicSettings(settings: TranslatorSettings): PublicTranslatorSettings {
@@ -52,7 +63,10 @@ export function createModelProfile(seed?: Partial<ModelProfile>): ModelProfile {
     timeoutMs: seed?.timeoutMs ?? 60_000,
     maxOutputTokens: seed?.maxOutputTokens ?? 2_048,
     customHeaders: seed?.customHeaders ?? {},
-    authMode: seed?.authMode ?? "bearer"
+    // Infer from the provider when unspecified: the Anthropic Messages API
+    // requires x-api-key, everything else speaks Bearer. Presetting "bearer"
+    // here would defeat the provider-aware default in normalizeSettings.
+    authMode: seed?.authMode ?? (seed?.provider === "anthropic" ? "x-api-key" : "bearer")
   };
 }
 
@@ -76,7 +90,9 @@ function normalizeSettings(settings: TranslatorSettings): TranslatorSettings {
     ...profile,
     enabled: profile.enabled ?? true,
     provider: profile.provider ?? "openai-compatible",
-    maxOutputTokens: profile.maxOutputTokens ?? 2_048,
+    temperature: clampNumber(profile.temperature, 0, 2, DEFAULT_SETTINGS.temperature),
+    timeoutMs: clampNumber(profile.timeoutMs, 5_000, 300_000, DEFAULT_SETTINGS.timeoutMs),
+    maxOutputTokens: clampNumber(profile.maxOutputTokens, 64, 131_072, DEFAULT_SETTINGS.maxOutputTokens),
     customHeaders: profile.customHeaders ?? {},
     authMode: profile.authMode ?? (profile.provider === "anthropic" ? "x-api-key" : "bearer")
   }));
@@ -105,9 +121,11 @@ function normalizeSettings(settings: TranslatorSettings): TranslatorSettings {
     apiBaseUrl: active.apiBaseUrl,
     apiKey: active.apiKey,
     model: active.model,
-    temperature: active.temperature,
-    timeoutMs: active.timeoutMs,
-    maxOutputTokens: active.maxOutputTokens,
-    customHeaders: active.customHeaders
+    customHeaders: active.customHeaders,
+    temperature: clampNumber(active.temperature, 0, 2, DEFAULT_SETTINGS.temperature),
+    timeoutMs: clampNumber(active.timeoutMs, 5_000, 300_000, DEFAULT_SETTINGS.timeoutMs),
+    maxOutputTokens: clampNumber(active.maxOutputTokens, 64, 131_072, DEFAULT_SETTINGS.maxOutputTokens),
+    minChars: clampNumber(settings.minChars, 1, 100, DEFAULT_SETTINGS.minChars),
+    maxChars: clampNumber(settings.maxChars, 100, 20_000, DEFAULT_SETTINGS.maxChars)
   };
 }

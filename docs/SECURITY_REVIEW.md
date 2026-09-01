@@ -7,8 +7,8 @@
 - Manifest V3；扩展页面使用显式 CSP，未加载远程代码。
 - 扩展本地存储设置为仅可信扩展上下文可访问；网页内容脚本只通过后台专用通道接收脱敏偏好，不能读取 API Key、API URL、自定义请求头或完整模型配置。
 - 翻译请求只在后台扩展上下文发起；后台验证消息来源、请求类型、长度与请求 ID。
-- 云端模型 API 强制 HTTPS；仅本机 localhost、127.0.0.1 和 ::1 可使用 HTTP。
-- 云端 API 域名改为运行时可选权限，在用户保存或测试模型时按域名申请。
+- 云端模型 API 强制 HTTPS；HTTP 仅允许本机 loopback（localhost、127.0.0.1、::1）和局域网私有地址（RFC 1918 私有网段、169.254/16 链路本地、IPv6 ULA 与链路本地、*.local mDNS 主机名），公网明文 HTTP 被拒绝。（2026-09-01 起放开局域网，此前仅允许 loopback。）
+- 模型 API 地址改为运行时可选权限，在用户保存或测试模型时按 origin 申请；局域网 HTTP 同样逐个地址申请，且申请前会提示用户确认。
 - Gemini API Key 不再放入 URL 查询参数；错误信息会脱敏 API Key 和鉴权头。
 - API URL、自定义请求头和导入 JSON 均执行格式、字段、长度和数量校验。
 - SSE/流式响应设置缓冲区上限，翻译请求设置输入和输出长度上限。
@@ -29,6 +29,8 @@
 
 - `<all_urls>` 内容脚本仅用于检测用户主动选中的文本和渲染页面内浮窗；未同意或网站规则不允许时不处理选区。
 - `https://*/*` 是可选 host permission；实际只请求用户所配置 API 的 origin。
-- 本地 HTTP 权限仅包含 loopback 地址，不允许局域网或公网明文 HTTP。
+- `http://*/*` 是可选 host permission；实际只请求用户所配置的局域网模型服务 origin。URL 校验层只放行 loopback、私有网段、链路本地、IPv6 ULA/链路本地和 `.local` 主机名；公网地址仍强制 HTTPS。
+- 静态 host_permissions 仅包含 loopback HTTP（localhost、127.0.0.1、[::1]）。
+- 翻译请求始终由后台扩展上下文发起；局域网 HTTP 请求不经过网页内容脚本，避免私网访问（Private Network Access）限制。
 
 此文档是代码审查记录，不替代商店隐私政策或法律意见。

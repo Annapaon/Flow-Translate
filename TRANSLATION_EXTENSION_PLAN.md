@@ -343,6 +343,7 @@ providers/
 - 仅申请完成业务所需的最低权限。
 - 用户配置远程地址时默认只允许 HTTPS。
 - `localhost`、`127.0.0.1` 可作为本地模型例外。
+- 局域网私有地址（RFC 1918、169.254/16、IPv6 ULA/链路本地、`.local` 主机名）可作为局域网模型例外使用 HTTP；访问权限按 origin 运行时申请。
 - 日志不得打印 Authorization Header 或完整 API Key。
 - 错误信息展示前过滤敏感字段。
 - 不使用 `innerHTML` 直接渲染模型输出。

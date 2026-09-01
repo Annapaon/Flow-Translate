@@ -13,6 +13,7 @@
 - OpenAI-compatible Chat Completions、Anthropic-compatible Messages 和 Gemini 原生流式接口。
 - Ollama 和 LM Studio 本地模型预设，本地服务允许不配置 API Key。
 - Xinference、vLLM 和 SGLang 本地推理服务预设。
+- 支持局域网内其他服务器部署的模型（私有网段、链路本地和 `.local` 主机名的 HTTP 地址），保存或测试时按地址申请访问权限。
 - 网络中断、限流或服务端错误时自动重试，并显示重新连接状态。
 - 自定义 API Base URL、API Key、模型、目标语言和 Prompt。
 - 支持配置多个模型，并从工具栏 Popup 快速切换模型和目标语言。
@@ -65,6 +66,7 @@ npm run dev
 - DeepSeek：`https://api.deepseek.com/v1`
 - Ollama：`http://localhost:11434/v1`
 - LM Studio：`http://localhost:1234/v1`
+- 局域网内的服务（例如部署在另一台机器上的 Ollama）：`http://192.168.1.50:11434/v1`，也可以是 `http://nas.local:11434/v1` 等局域网地址
 - Anthropic 兼容接口（官方默认）：`https://api.anthropic.com/v1`
 - 火山方舟 Coding Plan（Anthropic 兼容）：`https://ark.cn-beijing.volces.com/api/coding`，模型可填写 `ark-code-latest`
 - Gemini：`https://generativelanguage.googleapis.com/v1beta`
@@ -74,6 +76,8 @@ OpenAI 兼容服务使用 `POST /chat/completions`；Anthropic 兼容服务接�
 ## 安全说明
 
 API Key 保存在扩展本地存储，只能由扩展页面和后台读取，不会提供给网页内容脚本。翻译内容直接发送到用户配置的模型服务，开发者不提供中转服务器。历史默认关闭；配置导出默认排除 API Key 和自定义请求头。浏览器本地存储并非系统级密钥保险箱，请勿在不可信设备上保存重要密钥。
+
+云端模型地址必须使用 HTTPS；HTTP 仅支持本机回环地址（localhost、127.0.0.1、::1）和局域网地址（如 192.168.*.*、10.*.*、172.16–172.31.*、169.254.*.*、`*.local` 主机名），公网明文 HTTP 会被拒绝。配置局域网 HTTP 地址时，扩展会在保存或测试时请求该地址的访问权限，请确认你信任所在的局域网。
 
 发布材料见 [隐私政策](./docs/PRIVACY_POLICY.md) 和 [商店提交材料](./docs/STORE_SUBMISSION.md)。正式发布前必须替换隐私政策中的联系邮箱并将政策托管到公开 HTTPS 地址。
 

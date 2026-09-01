@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { createModelProfile, getSettings, saveSettings } from "../../shared/settings";
 import { DEFAULT_SCENE_PROMPTS, DEFAULT_SETTINGS, TRANSLATION_SCENES, type ModelProfile, type ModelUsageEntry, type ProviderType, type TestConnectionResponse, type TranslationHistoryEntry, type TranslationScene, type TranslatorSettings } from "../../shared/types";
-import { providerRequiresApiKey, sanitizeHeaders, validateApiUrl, validateImportedSettings } from "../../shared/security";
+import { isLoopbackHost, providerRequiresApiKey, sanitizeHeaders, validateApiUrl, validateImportedSettings } from "../../shared/security";
 import "./style.css";
 
 const LANGUAGES = ["简体中文", "繁體中文", "English", "日本語", "한국어", "Français", "Deutsch", "Español"];
@@ -43,13 +43,15 @@ function textToHeaders(value: string): Record<string, string> {
 
 async function ensureApiPermission(apiBaseUrl: string): Promise<boolean> {
   const url = new URL(apiBaseUrl);
-  if (url.protocol !== "https:") return true;
+  // Loopback hosts are covered by the extension's static host permissions.
+  if (isLoopbackHost(url.hostname)) return true;
   const origin = `${url.origin}/*`;
   if (await browser.permissions.contains({ origins: [origin] })) return true;
   const english = document.documentElement.lang === "en";
+  const isLanHttp = url.protocol === "http:";
   const approved = window.confirm(english
-    ? `Flow Translate needs access to ${url.origin} only to send translation requests to the model service you configured. It will not use this permission to read that website. Continue?`
-    : `流译助手需要访问 ${url.origin}，仅用于向你配置的模型服务发送翻译请求，不会使用该权限读取该网站内容。是否继续授权？`);
+    ? `Flow Translate needs access to ${url.origin} only to send translation requests to the model service you configured.${isLanHttp ? " This is a plain-HTTP LAN endpoint; make sure you trust that local network." : ""} It will not use this permission to read that website. Continue?`
+    : `流译助手需要访问 ${url.origin}，仅用于向你配置的模型服务发送翻译请求，不会使用该权限读取该网站内容。${isLanHttp ? "该地址为明文 HTTP 的局域网服务，请确认你信任所在的局域网。" : ""}是否继续授权？`);
   if (!approved) return false;
   return browser.permissions.request({ origins: [origin] });
 }
@@ -57,10 +59,13 @@ async function ensureApiPermission(apiBaseUrl: string): Promise<boolean> {
 function App() {
   const [form, setForm] = useState<TranslatorSettings>(DEFAULT_SETTINGS);
   const [notice, setNotice] = useState("");
+  const [noticeKind, setNoticeKind] = useState<"info" | "success" | "error">("info");
   const [testingId, setTestingId] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<"basic" | "translation" | "prompts" | "models" | "history" | "data">("basic");
   const [editingProfile, setEditingProfile] = useState<ModelProfile | null>(null);
   const [headersDraft, setHeadersDraft] = useState("");
+  const [modalMessage, setModalMessage] = useState<{ text: string; kind: "success" | "error" } | null>(null);
+  const [testingDraft, setTestingDraft] = useState(false);
   const [history, setHistory] = useState<TranslationHistoryEntry[]>([]);
   const [historyQuery, setHistoryQuery] = useState("");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -68,6 +73,10 @@ function App() {
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const en = form.uiLanguage === "en";
   const t = (zh: string, english: string) => en ? english : zh;
+  const announce = (text: string, kind: "info" | "success" | "error" = "info") => {
+    setNotice(text);
+    setNoticeKind(kind);
+  };
   useEffect(() => { getSettings().then(setForm); }, []);
   useEffect(() => { document.title = t("流译助手设置", "Flow Translate Settings"); document.documentElement.lang = en ? "en" : "zh-CN"; }, [form.uiLanguage]);
   useEffect(() => {
@@ -83,7 +92,7 @@ function App() {
   async function resetModelUsage(id: string) {
     const entries = await browser.runtime.sendMessage({ type: "clear-model-usage", id }) as ModelUsageEntry[];
     setModelUsage(entries ?? []);
-    setNotice(t("该模型的使用量统计已清零。", "Usage statistics for this model were reset."));
+    announce(t("该模型的使用量统计已清零。", "Usage statistics for this model were reset."), "success");
   }
 
   function formatCount(value: number): string {
@@ -108,7 +117,7 @@ function App() {
   async function clearAllHistory() {
     await browser.runtime.sendMessage({ type: "clear-history" });
     setHistory([]);
-    setNotice(t("翻译历史已清空。翻译缓存未受影响。", "Translation history cleared. The translation cache was not affected."));
+    announce(t("翻译历史已清空。翻译缓存未受影响。", "Translation history cleared. The translation cache was not affected."), "success");
   }
 
   function exportConfiguration(includeSecrets = false) {
@@ -121,7 +130,7 @@ function App() {
     anchor.download = `translator-settings-${new Date().toISOString().slice(0, 10)}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
-    setNotice(includeSecrets ? t("含密钥配置已导出，请安全保管。", "Configuration with secrets exported. Store it securely.") : t("不含密钥的配置已导出。", "Configuration exported without secrets."));
+    announce(includeSecrets ? t("含密钥配置已导出，请安全保管。", "Configuration with secrets exported. Store it securely.") : t("不含密钥的配置已导出。", "Configuration exported without secrets."), "success");
   }
 
   async function importConfiguration(event: ChangeEvent<HTMLInputElement>) {
@@ -130,21 +139,21 @@ function App() {
     if (!file) return;
     try {
       if (file.size > 1_000_000) throw new Error(t("配置文件不能超过 1 MB", "Configuration file must not exceed 1 MB"));
-      const parsed = validateImportedSettings(JSON.parse(await file.text()));
+      const parsed = validateImportedSettings(JSON.parse(await file.text()), en);
       await saveQueueRef.current;
       await saveSettings({ ...DEFAULT_SETTINGS, ...parsed } as TranslatorSettings);
       const normalized = await getSettings();
       setForm(normalized);
-      setNotice(t("配置导入成功并已保存。", "Configuration imported and saved."));
+      announce(t("配置导入成功并已保存。", "Configuration imported and saved."), "success");
     } catch (error) {
-      setNotice(error instanceof Error ? `${t("导入失败：", "Import failed: ")}${error.message}` : t("导入失败：无法读取配置文件", "Import failed: unable to read the file"));
+      announce(error instanceof Error ? `${t("导入失败：", "Import failed: ")}${error.message}` : t("导入失败：无法读取配置文件", "Import failed: unable to read the file"), "error");
     }
   }
 
   function autoSave(settings: TranslatorSettings, message: string) {
     saveQueueRef.current = saveQueueRef.current
       .then(() => saveSettings(settings))
-      .then(() => setNotice(message));
+      .then(() => announce(message));
   }
 
   function update<K extends keyof TranslatorSettings>(key: K, value: TranslatorSettings[K]) {
@@ -160,7 +169,7 @@ function App() {
   }
   function restoreScenePrompt(scene: TranslationScene) {
     updateScenePrompt(scene, DEFAULT_SCENE_PROMPTS[scene]);
-    setNotice(t("该场景已恢复默认提示词。", "The default prompt was restored for this scene."));
+    announce(t("该场景已恢复默认提示词。", "The default prompt was restored for this scene."), "success");
   }
   function restoreAllScenePrompts() {
     if (!window.confirm(t("确定要将全部场景恢复为默认提示词吗？", "Restore the default prompts for every scene?"))) return;
@@ -170,39 +179,45 @@ function App() {
   }
   async function copyScenePrompt(scene: TranslationScene) {
     await navigator.clipboard.writeText(form.scenePrompts[scene]);
-    setNotice(t("提示词已复制。", "Prompt copied."));
+    announce(t("提示词已复制。", "Prompt copied."), "success");
   }
   function addProfile() {
     const profile = createModelProfile();
     setEditingProfile(profile);
     setHeadersDraft(headersToText(profile.customHeaders));
+    setModalMessage(null);
   }
   function editProfile(profile: ModelProfile) {
     setEditingProfile({ ...profile });
     setHeadersDraft(headersToText(profile.customHeaders));
+    setModalMessage(null);
+  }
+  function draftProfile(): ModelProfile {
+    return { ...editingProfile!, customHeaders: textToHeaders(headersDraft) };
   }
   async function saveProfileDraft() {
     if (!editingProfile) return;
-    const profileDraft = { ...editingProfile, customHeaders: textToHeaders(headersDraft) };
+    setModalMessage(null);
+    const profileDraft = draftProfile();
     const requiresKey = providerRequiresApiKey(profileDraft.provider);
     if (!profileDraft.name.trim() || !profileDraft.model.trim() || !profileDraft.apiBaseUrl.trim() || (requiresKey && !profileDraft.apiKey.trim())) {
-      setNotice(requiresKey ? t("请完整填写配置名称、模型名称、API 地址和 API Key。", "Enter a profile name, model, API URL, and API key.") : t("请完整填写配置名称、模型名称和 API 地址。", "Enter a profile name, model, and API URL."));
+      setModalMessage({ kind: "error", text: requiresKey ? t("请完整填写配置名称、模型名称、API 地址和 API Key。", "Enter a profile name, model, API URL, and API key.") : t("请完整填写配置名称、模型名称和 API 地址。", "Enter a profile name, model, and API URL.") });
       return;
     }
     try {
-      profileDraft.apiBaseUrl = validateApiUrl(profileDraft.apiBaseUrl);
-      profileDraft.customHeaders = sanitizeHeaders(profileDraft.customHeaders);
+      profileDraft.apiBaseUrl = validateApiUrl(profileDraft.apiBaseUrl, en);
+      profileDraft.customHeaders = sanitizeHeaders(profileDraft.customHeaders, en);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : t("模型配置无效。", "Invalid model configuration."));
+      setModalMessage({ kind: "error", text: error instanceof Error ? error.message : t("模型配置无效。", "Invalid model configuration.") });
       return;
     }
     if (!await ensureApiPermission(profileDraft.apiBaseUrl)) {
-      setNotice(t("未授予该模型域名的访问权限，配置未保存。", "Access to this model domain was not granted; the profile was not saved."));
+      setModalMessage({ kind: "error", text: t("未授予该模型地址的访问权限，配置未保存。", "Access to this model endpoint was not granted; the profile was not saved.") });
       return;
     }
     const existingProfile = form.modelProfiles.find((profile) => profile.id === profileDraft.id);
     if (existingProfile?.enabled && !profileDraft.enabled && form.modelProfiles.filter((profile) => profile.enabled).length === 1) {
-      setNotice(t("至少需要启用一个模型。", "At least one model must be enabled."));
+      setModalMessage({ kind: "error", text: t("至少需要启用一个模型。", "At least one model must be enabled.") });
       return;
     }
     const exists = form.modelProfiles.some((profile) => profile.id === profileDraft.id);
@@ -223,13 +238,13 @@ function App() {
     await saveSettings(next);
     setForm(await getSettings());
     setEditingProfile(null);
-    setNotice(t("模型配置已保存并立即生效。", "Model configuration saved and activated."));
+    announce(t("模型配置已保存并立即生效。", "Model configuration saved and activated."), "success");
   }
   async function toggleProfile(id: string) {
     const target = form.modelProfiles.find((profile) => profile.id === id);
     if (!target) return;
     if (target.enabled && form.modelProfiles.filter((profile) => profile.enabled).length === 1) {
-      setNotice(t("至少需要启用一个模型。", "At least one model must be enabled."));
+      announce(t("至少需要启用一个模型。", "At least one model must be enabled."), "error");
       return;
     }
     const profiles = form.modelProfiles.map((profile) => profile.id === id ? { ...profile, enabled: !profile.enabled } : profile);
@@ -237,35 +252,86 @@ function App() {
     await saveQueueRef.current;
     await saveSettings({ ...form, modelProfiles: profiles, activeModelId: activeStillEnabled ? form.activeModelId : profiles.find((profile) => profile.enabled)!.id });
     setForm(await getSettings());
-    setNotice(t("模型启用状态已保存。", "Model status saved."));
+    announce(t("模型启用状态已保存。", "Model status saved."), "success");
   }
   async function removeProfile(id: string) {
-    if (form.modelProfiles.length === 1) { setNotice(t("至少需要保留一个模型配置。", "At least one model profile must remain.")); return; }
+    if (form.modelProfiles.length === 1) { announce(t("至少需要保留一个模型配置。", "At least one model profile must remain."), "error"); return; }
     const profiles = form.modelProfiles.filter((profile) => profile.id !== id);
     const activeModelId = form.activeModelId === id ? (profiles.find((profile) => profile.enabled)?.id ?? profiles[0]!.id) : form.activeModelId;
     await saveQueueRef.current;
     await saveSettings({ ...form, modelProfiles: profiles, activeModelId });
     setForm(await getSettings());
     setEditingProfile(null);
-    setNotice(t("模型配置已删除并保存。", "Model profile deleted."));
+    announce(t("模型配置已删除并保存。", "Model profile deleted."), "success");
+  }
+  function connectionTestSettings(profile: ModelProfile): TranslatorSettings {
+    return {
+      ...form,
+      modelProfiles: [...form.modelProfiles.filter((item) => item.id !== profile.id), profile],
+      activeModelId: profile.id,
+      provider: profile.provider,
+      apiBaseUrl: profile.apiBaseUrl,
+      apiKey: profile.apiKey,
+      model: profile.model,
+      temperature: profile.temperature,
+      timeoutMs: profile.timeoutMs,
+      maxOutputTokens: profile.maxOutputTokens,
+      customHeaders: profile.customHeaders
+    };
   }
   async function testProfile(profile: ModelProfile) {
-    setTestingId(profile.id); setNotice(`${t("正在测试", "Testing")} “${profile.name}”…`);
-    const testSettings = { ...form, activeModelId: profile.id, provider: profile.provider, apiBaseUrl: profile.apiBaseUrl, apiKey: profile.apiKey, model: profile.model, temperature: profile.temperature, timeoutMs: profile.timeoutMs, maxOutputTokens: profile.maxOutputTokens, customHeaders: profile.customHeaders };
+    setTestingId(profile.id); announce(`${t("正在测试", "Testing")} “${profile.name}”…`);
     try {
-      if (!await ensureApiPermission(validateApiUrl(profile.apiBaseUrl))) {
-        setNotice(t("未授予该模型域名的访问权限。", "Access to this model domain was not granted."));
+      let endpoint: string;
+      try {
+        endpoint = validateApiUrl(profile.apiBaseUrl, en);
+      } catch (error) {
+        announce(`${profile.name}：${error instanceof Error ? error.message : t("API 地址无效。", "The API URL is invalid.")}`, "error");
         return;
       }
-      const response = await browser.runtime.sendMessage({ type: "test-connection", settings: testSettings }) as TestConnectionResponse;
-      setNotice(`${profile.name}：${response.message}`);
+      if (!await ensureApiPermission(endpoint)) {
+        announce(`${profile.name}：${t("未授予该模型地址的访问权限，无法测试。", "Access to this model endpoint was not granted; the test was skipped.")}`, "error");
+        return;
+      }
+      const response = await browser.runtime.sendMessage({ type: "test-connection", settings: connectionTestSettings({ ...profile, apiBaseUrl: endpoint }) }) as TestConnectionResponse;
+      announce(`${profile.name}：${response.message}`, response.ok ? "success" : "error");
+    } catch (error) {
+      announce(`${profile.name}：${error instanceof Error ? error.message : t("测试失败。", "The test failed.")}`, "error");
     } finally { setTestingId(null); }
+  }
+  async function testDraft() {
+    if (!editingProfile || testingDraft) return;
+    setModalMessage(null);
+    const profileDraft = draftProfile();
+    const requiresKey = providerRequiresApiKey(profileDraft.provider);
+    if (!profileDraft.model.trim() || !profileDraft.apiBaseUrl.trim() || (requiresKey && !profileDraft.apiKey.trim())) {
+      setModalMessage({ kind: "error", text: requiresKey ? t("测试前请先填写模型名称、API 地址和 API Key。", "Enter the model name, API URL, and API key before testing.") : t("测试前请先填写模型名称和 API 地址。", "Enter the model name and API URL before testing.") });
+      return;
+    }
+    try {
+      profileDraft.apiBaseUrl = validateApiUrl(profileDraft.apiBaseUrl, en);
+      profileDraft.customHeaders = sanitizeHeaders(profileDraft.customHeaders, en);
+    } catch (error) {
+      setModalMessage({ kind: "error", text: error instanceof Error ? error.message : t("模型配置无效。", "Invalid model configuration.") });
+      return;
+    }
+    setTestingDraft(true);
+    try {
+      if (!await ensureApiPermission(profileDraft.apiBaseUrl)) {
+        setModalMessage({ kind: "error", text: t("未授予该模型地址的访问权限，无法测试。", "Access to this model endpoint was not granted; the test was skipped.") });
+        return;
+      }
+      const response = await browser.runtime.sendMessage({ type: "test-connection", settings: connectionTestSettings(profileDraft) }) as TestConnectionResponse;
+      setModalMessage({ kind: response.ok ? "success" : "error", text: response.ok ? `${t("测试通过", "Test passed")}：${response.message}` : `${t("测试失败", "Test failed")}：${response.message}` });
+    } catch (error) {
+      setModalMessage({ kind: "error", text: error instanceof Error ? error.message : t("测试失败。", "The test failed.") });
+    } finally { setTestingDraft(false); }
   }
 
   async function clearLocalData() {
     if (!window.confirm(t("确定清除翻译历史、缓存和使用量统计吗？模型配置不会删除。", "Clear translation history, cache, and usage statistics? Model profiles will be kept."))) return;
     await browser.runtime.sendMessage({ type: "clear-local-data" });
-    setHistory([]); setModelUsage([]); setNotice(t("本地翻译数据已清除。", "Local translation data cleared."));
+    setHistory([]); setModelUsage([]); announce(t("本地翻译数据已清除。", "Local translation data cleared."), "success");
   }
 
   async function resetAllSettings() {
@@ -276,7 +342,7 @@ function App() {
     setForm(await getSettings());
     setHistory([]);
     setModelUsage([]);
-    setNotice(t("全部本地数据和密钥已删除，设置已恢复默认。", "All local data and keys were deleted, and defaults were restored."));
+    announce(t("全部本地数据和密钥已删除，设置已恢复默认。", "All local data and keys were deleted, and defaults were restored."), "success");
   }
 
   const normalizedHistoryQuery = historyQuery.trim().toLowerCase();
@@ -386,7 +452,7 @@ function App() {
         </div>
         <p className="secret-warning"><strong>{t("敏感信息提醒：", "Sensitive information: ")}</strong>{t("选择“包含密钥”时，导出文件会包含模型 API Key。不要上传到公开仓库、共享目录或发送给不可信的人。", "When exporting with secrets, the file contains model API keys. Do not upload it publicly or share it with untrusted people.")}</p>
       </section>}
-      {notice && <div className="standalone-notice">{notice}</div>}
+      {notice && <div className={`standalone-notice ${noticeKind}`} role={noticeKind === "error" ? "alert" : "status"}>{notice}</div>}
       </div>
     </div>
     {editingProfile && <div className="modal-backdrop" onMouseDown={() => setEditingProfile(null)}>
@@ -395,14 +461,15 @@ function App() {
         <div className="modal-body">
           <div className="grid"><label>{t("服务类型", "Provider type")}<select value={editingProfile.provider} onChange={(event) => { const provider = event.target.value as ProviderType; const definition = PROVIDERS.find((item) => item.id === provider)!; setEditingProfile({ ...editingProfile, provider, apiBaseUrl: definition.defaultUrl, authMode: provider === "anthropic" ? "x-api-key" : "bearer" }); }}>{PROVIDERS.map((provider) => <option key={provider.id} value={provider.id}>{providerDisplayName(provider.id, en)}</option>)}</select></label><label>{t("配置名称", "Profile name")}<input value={editingProfile.name} onChange={(event) => setEditingProfile({ ...editingProfile, name: event.target.value })} placeholder={t("例如：本地推理服务", "For example: Local inference")} /></label></div>
           <label>{t("模型名称", "Model name")}<input value={editingProfile.model} onChange={(event) => setEditingProfile({ ...editingProfile, model: event.target.value })} placeholder={PROVIDERS.find((item) => item.id === editingProfile.provider)?.modelPlaceholder} /></label>
-          <label>API Base URL<input value={editingProfile.apiBaseUrl} onChange={(event) => setEditingProfile({ ...editingProfile, apiBaseUrl: event.target.value })} placeholder="https://api.openai.com/v1" /><small>{t("保存或测试时，扩展会请求访问该 API 域名，仅用于发送模型翻译请求，不会读取该网站内容。", "When saving or testing, the extension requests access to this API domain only to send model translation requests; it does not read that website's content.")}</small></label>
+          <label>API Base URL<input value={editingProfile.apiBaseUrl} onChange={(event) => setEditingProfile({ ...editingProfile, apiBaseUrl: event.target.value })} placeholder="https://api.openai.com/v1" /><small>{t("云端服务需使用 HTTPS；局域网内的模型服务可以使用 HTTP（如 http://192.168.1.50:11434/v1、http://nas.local:8000/v1）。保存或测试时，扩展会请求访问该 API 地址，仅用于发送模型翻译请求，不会读取该网站内容。", "Cloud services must use HTTPS; model services on your local network may use HTTP (e.g. http://192.168.1.50:11434/v1 or http://nas.local:8000/v1). When saving or testing, the extension requests access to this API endpoint only to send model translation requests; it does not read that website's content.")}</small></label>
           <label>API Key{!["openai-compatible", "anthropic", "gemini"].includes(editingProfile.provider) && t("（可选）", " (optional)")}<input type="password" autoComplete="new-password" value={editingProfile.apiKey} onChange={(event) => setEditingProfile({ ...editingProfile, apiKey: event.target.value })} placeholder={["openai-compatible", "anthropic", "gemini"].includes(editingProfile.provider) ? "API Key" : t("本地服务通常无需填写", "Usually not required for local services")} /></label>
           {editingProfile.provider === "anthropic" && <label>{t("鉴权方式", "Authentication")}<select value={editingProfile.authMode} onChange={(event) => setEditingProfile({ ...editingProfile, authMode: event.target.value as ModelProfile["authMode"] })}><option value="x-api-key">x-api-key（Anthropic 官方）</option><option value="bearer">Authorization Bearer（常见第三方）</option><option value="both">{t("同时发送（仅兼容需要时）", "Send both (compatibility only)")}</option></select></label>}
           <div className="grid"><label>Temperature<input type="number" min="0" max="2" step="0.1" value={editingProfile.temperature} onChange={(event) => setEditingProfile({ ...editingProfile, temperature: Number(event.target.value) })} /></label><label>{t("超时时间（秒）", "Timeout (seconds)")}<input type="number" min="5" max="300" value={editingProfile.timeoutMs / 1000} onChange={(event) => setEditingProfile({ ...editingProfile, timeoutMs: Number(event.target.value) * 1000 })} /></label><label>{t("最大输出 Token", "Maximum output tokens")}<input type="number" min="64" max="131072" value={editingProfile.maxOutputTokens} onChange={(event) => setEditingProfile({ ...editingProfile, maxOutputTokens: Number(event.target.value) })} /></label></div>
           <label>{t("自定义请求头", "Custom headers")}<textarea rows={3} value={headersDraft} onChange={(event) => setHeadersDraft(event.target.value)} placeholder={"X-Organization: example\nX-Custom-Key: value"} /><small>{t("每行一个 Header，格式为“名称: 值”。同名项可以覆盖默认请求头。", "One header per line in Name: Value format. Matching names override default headers.")}</small></label>
           <label className="modal-toggle"><input type="checkbox" checked={editingProfile.enabled} onChange={(event) => setEditingProfile({ ...editingProfile, enabled: event.target.checked })} /><span>{t("启用此模型", "Enable this model")}</span></label>
         </div>
-        <footer>{form.modelProfiles.some((profile) => profile.id === editingProfile.id) && <button type="button" className="delete-model" onClick={() => removeProfile(editingProfile.id)}>{t("删除模型", "Delete model")}</button>}<span /><button type="button" className="cancel" onClick={() => setEditingProfile(null)}>{t("取消", "Cancel")}</button><button type="button" className="save-model" onClick={saveProfileDraft}>{t("保存模型", "Save model")}</button></footer>
+        {modalMessage && <div className={`modal-message ${modalMessage.kind}`} role={modalMessage.kind === "error" ? "alert" : "status"}>{modalMessage.text}</div>}
+        <footer>{form.modelProfiles.some((profile) => profile.id === editingProfile.id) && <button type="button" className="delete-model" onClick={() => removeProfile(editingProfile.id)}>{t("删除模型", "Delete model")}</button>}<span /><button type="button" className="test-model" disabled={testingDraft} onClick={testDraft}>{testingDraft ? t("测试中…", "Testing…") : t("测试连接", "Test connection")}</button><button type="button" className="cancel" onClick={() => setEditingProfile(null)}>{t("取消", "Cancel")}</button><button type="button" className="save-model" onClick={saveProfileDraft}>{t("保存模型", "Save model")}</button></footer>
       </section>
     </div>}
   </main>;

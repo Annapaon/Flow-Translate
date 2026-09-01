@@ -14,7 +14,27 @@ const cacheItem = storage.defineItem<TranslationCacheEntry[]>("local:translation
 });
 
 const usageItem = storage.defineItem<ModelUsageEntry[]>("local:modelUsage", { defaultValue: [] });
-let usageWriteQueue = Promise.resolve();
+
+/**
+ * Serializes read-modify-write cycles per storage key. These functions read
+ * the whole array, mutate it, and write it back, so concurrent completions
+ * (e.g. a side-panel and a page translation finishing together) would
+ * otherwise overwrite each other's entries. Each task's own rejection is
+ * still surfaced to its caller, but the chain is reset after a failure so
+ * one transient storage error never poisons subsequent writes.
+ */
+function createWriteQueue() {
+  let tail: Promise<unknown> = Promise.resolve();
+  return <T>(task: () => Promise<T>): Promise<T> => {
+    const run = tail.then(task);
+    tail = run.catch(() => undefined);
+    return run;
+  };
+}
+
+const queueHistoryWrite = createWriteQueue();
+const queueCacheWrite = createWriteQueue();
+const queueUsageWrite = createWriteQueue();
 
 export async function createCacheKey(text: string, settings: TranslatorSettings): Promise<string> {
   const value = JSON.stringify([
@@ -29,65 +49,80 @@ export async function createCacheKey(text: string, settings: TranslatorSettings)
     settings.outputMode,
     settings.translationScene,
     settings.scenePrompts[settings.translationScene],
-    settings.maxOutputTokens
+    settings.maxOutputTokens,
+    settings.temperature
   ]);
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export async function findCachedTranslation(key: string): Promise<string | null> {
-  const now = Date.now();
-  const entries = await cacheItem.getValue();
-  const validEntries = entries.filter((entry) => now - entry.createdAt < CACHE_TTL_MS);
-  if (validEntries.length !== entries.length) await cacheItem.setValue(validEntries);
-  return validEntries.find((entry) => entry.key === key)?.translatedText ?? null;
+export function findCachedTranslation(key: string): Promise<string | null> {
+  // Queued because the TTL prune below writes the array back.
+  return queueCacheWrite(async () => {
+    const now = Date.now();
+    const entries = await cacheItem.getValue();
+    const validEntries = entries.filter((entry) => now - entry.createdAt < CACHE_TTL_MS);
+    if (validEntries.length !== entries.length) await cacheItem.setValue(validEntries);
+    return validEntries.find((entry) => entry.key === key)?.translatedText ?? null;
+  });
 }
 
-export async function cacheTranslation(key: string, translatedText: string): Promise<void> {
-  if (!translatedText) return;
-  const entries = (await cacheItem.getValue()).filter((entry) => entry.key !== key);
-  await cacheItem.setValue([
-    { key, translatedText, createdAt: Date.now() },
-    ...entries
-  ].slice(0, MAX_CACHE_ITEMS));
+export function cacheTranslation(key: string, translatedText: string): Promise<void> {
+  if (!translatedText) return Promise.resolve();
+  return queueCacheWrite(async () => {
+    const entries = (await cacheItem.getValue()).filter((entry) => entry.key !== key);
+    await cacheItem.setValue([
+      { key, translatedText, createdAt: Date.now() },
+      ...entries
+    ].slice(0, MAX_CACHE_ITEMS));
+  });
 }
 
-export async function addHistory(entry: Omit<TranslationHistoryEntry, "id" | "createdAt">): Promise<void> {
-  const entries = await historyItem.getValue();
-  await historyItem.setValue([
-    { ...entry, id: crypto.randomUUID(), createdAt: Date.now() },
-    ...entries
-  ].slice(0, MAX_HISTORY_ITEMS));
+export function addHistory(entry: Omit<TranslationHistoryEntry, "id" | "createdAt">): Promise<void> {
+  return queueHistoryWrite(async () => {
+    const entries = await historyItem.getValue();
+    await historyItem.setValue([
+      { ...entry, id: crypto.randomUUID(), createdAt: Date.now() },
+      ...entries
+    ].slice(0, MAX_HISTORY_ITEMS));
+  });
 }
 
 export async function getHistory(): Promise<TranslationHistoryEntry[]> {
   return historyItem.getValue();
 }
 
-export async function toggleHistoryFavorite(id: string): Promise<TranslationHistoryEntry[]> {
-  const entries = (await historyItem.getValue()).map((entry) =>
-    entry.id === id ? { ...entry, favorite: !entry.favorite } : entry
-  );
-  await historyItem.setValue(entries);
-  return entries;
+export function toggleHistoryFavorite(id: string): Promise<TranslationHistoryEntry[]> {
+  return queueHistoryWrite(async () => {
+    const entries = (await historyItem.getValue()).map((entry) =>
+      entry.id === id ? { ...entry, favorite: !entry.favorite } : entry
+    );
+    await historyItem.setValue(entries);
+    return entries;
+  });
 }
 
-export async function deleteHistoryEntry(id: string): Promise<TranslationHistoryEntry[]> {
-  const entries = (await historyItem.getValue()).filter((entry) => entry.id !== id);
-  await historyItem.setValue(entries);
-  return entries;
+export function deleteHistoryEntry(id: string): Promise<TranslationHistoryEntry[]> {
+  return queueHistoryWrite(async () => {
+    const entries = (await historyItem.getValue()).filter((entry) => entry.id !== id);
+    await historyItem.setValue(entries);
+    return entries;
+  });
 }
 
-export async function clearHistory(): Promise<void> {
-  await historyItem.setValue([]);
+export function clearHistory(): Promise<void> {
+  return queueHistoryWrite(() => historyItem.setValue([]));
 }
 
-export async function clearHistoryAndCache(): Promise<void> {
-  await Promise.all([historyItem.setValue([]), cacheItem.setValue([])]);
+export function clearHistoryAndCache(): Promise<void> {
+  return Promise.all([
+    queueHistoryWrite(() => historyItem.setValue([])),
+    queueCacheWrite(() => cacheItem.setValue([]))
+  ]).then(() => undefined);
 }
 
-export async function recordModelUsage(modelProfileId: string, inputCharacters: number, outputCharacters: number): Promise<void> {
-  usageWriteQueue = usageWriteQueue.then(async () => {
+export function recordModelUsage(modelProfileId: string, inputCharacters: number, outputCharacters: number): Promise<void> {
+  return queueUsageWrite(async () => {
     const entries = await usageItem.getValue();
     const current = entries.find((entry) => entry.modelProfileId === modelProfileId);
     const next: ModelUsageEntry = {
@@ -99,19 +134,20 @@ export async function recordModelUsage(modelProfileId: string, inputCharacters: 
     };
     await usageItem.setValue([...entries.filter((entry) => entry.modelProfileId !== modelProfileId), next]);
   });
-  await usageWriteQueue;
 }
 
 export async function getModelUsage(): Promise<ModelUsageEntry[]> {
   return usageItem.getValue();
 }
 
-export async function clearModelUsage(modelProfileId: string): Promise<ModelUsageEntry[]> {
-  const entries = (await usageItem.getValue()).filter((entry) => entry.modelProfileId !== modelProfileId);
-  await usageItem.setValue(entries);
-  return entries;
+export function clearModelUsage(modelProfileId: string): Promise<ModelUsageEntry[]> {
+  return queueUsageWrite(async () => {
+    const entries = (await usageItem.getValue()).filter((entry) => entry.modelProfileId !== modelProfileId);
+    await usageItem.setValue(entries);
+    return entries;
+  });
 }
 
-export async function clearAllModelUsage(): Promise<void> {
-  await usageItem.setValue([]);
+export function clearAllModelUsage(): Promise<void> {
+  return queueUsageWrite(() => usageItem.setValue([]));
 }
