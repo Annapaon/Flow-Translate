@@ -1,10 +1,15 @@
 # 流译助手（Flow Translate）
 
-一个基于 WXT、React 和 TypeScript 的 Chrome/Edge 浏览器扩展。选择网页文字后，可以点击圆点或自动调用自定义的 OpenAI-compatible API 进行流式翻译。
+一个基于 WXT、React 和 TypeScript 的 Chrome/Edge 浏览器扩展。支持划词和网页全文双语翻译，可使用自定义大模型或官方机器翻译 API。大模型结果支持流式显示。
 
 插件使用紫蓝双向对话气泡图标，在浏览器工具栏和扩展管理页面提供统一识别。
 
 ## 当前功能
+
+- 双向互译：设置页开启后选择“中文 ↔ 外语”，关闭后恢复原语向；浮窗支持临时切换方向。
+- 网页全文双语翻译：Popup 点击“翻译此页”，译文放在对应原文下方；支持暂停、继续、恢复原文和失败段落重试。
+- 百度、Microsoft/必应、Google Cloud Translation v2、DeepL 官方翻译 API；需要自行配置相应开发者凭据，个人翻译软件订阅不等同于 API 账户。
+- 智能输出、少量定向术语、重新翻译及网站会话暂停/永久禁用。
 
 - 普通网页及输入框划词检测。
 - 点击小圆点或自动翻译；取消选区时同步关闭浮窗。
@@ -79,8 +84,34 @@ API Key 保存在扩展本地存储，只能由扩展页面和后台读取，不
 
 云端模型地址必须使用 HTTPS；HTTP 仅支持本机回环地址（localhost、127.0.0.1、::1）和局域网地址（如 192.168.*.*、10.*.*、172.16–172.31.*、169.254.*.*、`*.local` 主机名），公网明文 HTTP 会被拒绝。配置局域网 HTTP 地址时，扩展会在保存或测试时请求该地址的访问权限，请确认你信任所在的局域网。
 
-发布材料见 [隐私政策](./docs/PRIVACY_POLICY.md) 和 [商店提交材料](./docs/STORE_SUBMISSION.md)。正式发布前必须替换隐私政策中的联系邮箱并将政策托管到公开 HTTPS 地址。
+发布材料见 [隐私政策](./docs/PRIVACY_POLICY.md) 和 [商店提交材料](./docs/STORE_SUBMISSION.md)。使用 `PRIVACY_CONTACT_EMAIL='你的真实公开邮箱' npm run build:privacy` 生成 `.output/privacy-site/index.html`，将其托管到公开 HTTPS 地址，再把该地址填入 Chrome 商店后台本产品“隐私权”页的“隐私权政策网址”专用字段。产品说明中的链接不能代替此字段；Purple Nickel 退回的完整处理步骤见商店提交材料。
 
 ## 规划
 
 完整规划见 [TRANSLATION_EXTENSION_PLAN.md](./TRANSLATION_EXTENSION_PLAN.md)。
+
+功能设计见 [双向互译、网页全文翻译与翻译服务接入方案](./docs/NEXT_PHASE_IMPLEMENTATION_PLAN.md)；本轮实现、兼容决策和待联调事项见 [1.3.0 开发交付记录](./docs/RELEASE_NOTES_1.3.0.md)。
+
+## 自动化验证
+
+```bash
+npm run typecheck
+npm test
+npx playwright install chromium  # 首次运行时安装测试浏览器
+npm run test:e2e
+```
+
+`npm run check` 依次执行类型检查、单元测试、生产构建和端到端测试。
+端到端测试加载 `.output/chrome-mv3` 中的真实扩展，使用临时浏览器配置和本地 SSE 模型服务，不需要真实 API Key，也不会调用云端模型。覆盖段落、跨节点、input/textarea 选区、流式输出、自动翻译稳定性、请求取消和明暗主题。失败截图保存在 `test-results/`。
+
+一期实现使用 React 状态、原生 CSS 和 Zod 导入校验；未使用的 Zustand、React Hook Form、Tailwind 依赖已移除。整合核对记录见 [一期核对报告](./docs/PHASE1_REVIEW.md)。
+
+## 新功能使用
+
+在设置页“翻译配置”开启双向互译并选择外语。原来的源/目标语言会禁用但保留，关闭开关后恢复。短词判断不确定时可用结果区“切换方向”纠正。
+
+在“翻译服务配置”添加服务：百度填写 App ID 和 Secret（API Key 字段）；Microsoft 填写 Key 与资源需要的 Region；Google 填写 Cloud Translation v2 API Key；DeepL 填写 API Key 并选择 Free/Pro。保存时按域名授予访问权限，连接测试会实际调用服务。
+
+在普通网页打开 Popup，可查看文本量、选择本页目标语言，再点击“翻译此页”。默认按当前翻译规则决定方向；全文任务固定一个目标语言，已是目标语言的块会跳过。长页面达到预算后暂停，点击继续可处理剩余内容。“恢复原文”结束任务并移除扩展译文，保留原网页节点与交互状态。
+
+全文翻译会将可读网页文本及最小行内格式发送至所选服务，表单输入、隐藏文本及编辑区不参与。PDF、跨域 iframe、封闭 Shadow DOM 暂不支持。复杂布局可能跳过或降级；真实服务连通性与计费以账户实际情况为准。

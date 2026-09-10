@@ -3,9 +3,37 @@
 ## 发布前必须替换
 
 - 隐私政策中的 `[CONTACT_EMAIL]`。
-- 将 `docs/PRIVACY_POLICY.md` 发布到无需登录即可访问的 HTTPS URL。
+- 将隐私政策发布到无需登录即可访问的 HTTPS URL，并填入所涉产品“隐私权”页的“隐私权政策网址”指定字段。仓库文件和产品说明中的链接不能替代此字段。
 - 填写支持网站、支持邮箱和代码仓库 URL。
 - 使用真实产品截图，不得包含真实 API Key、个人网页或敏感文本。
+
+## 本次 Chrome 退回修正：Purple Nickel
+
+产品：流译助手；产品 ID：`amjogmonhgjbbndglcedgbgglcpncbjc`。
+
+本次通知指出隐私权政策链接字段为空。修正需要公开托管政策并更新商店后台元数据；仅为这一项修正无需修改扩展权限或提升版本号。
+
+1. 确认政策与实际提交版本一致。当前 `docs/PRIVACY_POLICY.md` 包含 1.3.0 全文翻译及第三方翻译 API 的数据处理说明。
+2. 使用开发者真实公开邮箱生成独立网页：
+
+   ```bash
+   PRIVACY_CONTACT_EMAIL='你的真实公开邮箱' npm run build:privacy
+   ```
+
+   输出为 `.output/privacy-site/index.html`。生成器从 `docs/PRIVACY_POLICY.md` 读取正文并替换邮箱占位符；不提供有效邮箱时会停止生成。该页面无需 JavaScript、外部字体或统计服务。不要上传示例邮箱版本。若直接发布 Markdown 文件，则先替换其中的 `[CONTACT_EMAIL]`。
+
+3. 将 `.output/privacy-site/` 的内容上传至你管理的公开静态网站。只上传这一目录即可，不要上传扩展源码、配置文件或凭据。取得可直接展示政策正文的 HTTPS 地址。
+4. 用未登录的无痕窗口打开该地址，确认无权限申请、登录墙、过期分享限制或下载提示；能看见产品名称、中英文政策和真实联系邮箱。确认最终响应成功且 HTTPS 证书有效。
+5. 打开[此产品的开发者后台](https://chrome.google.com/webstore/devconsole/e555c1f4-626c-4ef4-a510-bdc417173e10/amjogmonhgjbbndglcedgbgglcpncbjc/edit)，进入“隐私权 / Privacy practices”，在“隐私权政策网址 / Privacy policy URL”专用字段填入该公开地址并保存。不得把链接添加到产品说明中来代替此字段。
+6. 重新进入该页确认链接已保存，同时核对数据使用披露与提交版本一致，然后重新提交审核。
+
+当前仓库材料不代表上述公开托管或后台填写已经完成。公开邮箱、最终政策 URL 和后台保存状态需由实际发布结果确认。
+
+完成上述步骤后，可在审核备注中填写：
+
+> 已在本产品“隐私权”标签页的“隐私权政策网址”指定字段填写并保存公开可访问的 HTTPS 隐私政策链接。政策说明了待翻译内容、凭据及本地数据的处理方式、第三方翻译服务的数据接收、保留和删除方式，并提供开发者联系邮箱。已使用未登录窗口验证链接可访问。请重新审核。
+
+官方依据：[隐私字段填写说明](https://developer.chrome.com/docs/webstore/cws-dashboard-privacy#privacy_policy)、[审核问题排查](https://developer.chrome.com/docs/webstore/troubleshooting/#udp-prominent-disclosure)。
 
 ## 单一用途 / Single purpose
 
@@ -21,9 +49,14 @@ English: Translate selected webpage text or pasted long text with your own cloud
 
 ## 完整说明
 
-流译助手支持点击圆点、快捷键、右键菜单和可选的自动翻译。用户可配置 OpenAI-compatible、Anthropic-compatible、Gemini、Ollama、LM Studio、Xinference、vLLM 或 SGLang 服务。扩展支持多模型、场景提示词、Side Panel 长文本、纯文本流式结果、本地历史、缓存和按模型使用量统计。翻译数据直接发送到用户配置的服务，开发者不提供中转服务器。历史默认关闭。
+> ⚠️ 公开说明中不得罗列第三方品牌/服务名（如 OpenAI、Anthropic、Gemini、Ollama、LM Studio、Xinference、vLLM、SGLang）。
+> Chrome 商店曾因「关键字垃圾内容（Keyword Spam）」拒审（违规参考 ID：Yellow Argon），
+> 点名了旧版中文说明里的品牌列表。品牌与接口兼容信息只写在非公开的权限理由、
+> 审核备注和产品内设置界面中。修改后如再次被拒，请勿反复申诉同一文案。
 
-Flow Translate supports a translation dot, keyboard shortcut, context menu, and optional automatic translation. Users can configure OpenAI-compatible, Anthropic-compatible, Gemini, Ollama, LM Studio, Xinference, vLLM, or SGLang services. It includes multiple profiles, scene prompts, long-text Side Panel, plain-text streaming output, optional local history, cache, and per-model usage statistics. Translation data goes directly to the service configured by the user; the developer operates no proxy. History is off by default.
+流译助手支持点击圆点、快捷键、右键菜单和可选的自动翻译。用户可自行配置云端或本地的大模型 API 服务，包括各类兼容开放接口标准的推理服务，翻译请求直接发送到用户填写的服务地址。扩展支持多模型、场景提示词、Side Panel 长文本、纯文本流式结果、本地历史、缓存和按模型使用量统计。翻译数据直接发送到用户配置的服务，开发者不提供中转服务器。历史默认关闭。
+
+Flow Translate supports a translation dot, keyboard shortcut, context menu, and optional automatic translation. Users can configure their own cloud or local LLM API service, including any inference service exposing a compatible open API standard; translation requests are sent directly to the endpoint the user provides. It includes multiple profiles, scene prompts, long-text Side Panel, plain-text streaming output, optional local history, cache, and per-model usage statistics. Translation data goes directly to the service configured by the user; the developer operates no proxy. History is off by default.
 
 ## 权限理由
 
@@ -54,7 +87,7 @@ Flow Translate lets users connect a language-model API of their choice (a cloud 
 - Financial and payment information: No；产品明确提示用户不要提交。
 - Authentication information: Yes，用户提供的模型 API Key，仅本地保存并发送到用户选择的模型服务。
 - Personal communications / User-generated content: Yes，用户主动选择或输入的待翻译文本。
-- Website content: Yes，仅用户选择的文字。
+- Website content: Yes，用户选择或输入的文字；1.3.0 还包括用户明确启动全文翻译后的可读正文及最小行内格式，任务运行时可能处理新增正文。
 - Web browsing activity: Yes，页面标题和 URL 仅在用户开启历史时本地保存。
 - Data sold or used for ads/credit/lending: No。
 - Human access: No。
@@ -85,3 +118,10 @@ Flow Translate lets users connect a language-model API of their choice (a cloud 
 - 至少 1 张、建议 3–5 张真实功能截图：划词浮窗、工具栏参数、模型卡片、Side Panel、隐私控制。
 - Chrome 推荐宣传图按开发者后台当期尺寸制作；不要拉伸图标充当截图。
 - 中英文标题、说明和截图应保持功能一致。
+
+
+## 1.3.0 提交材料补充（待真实环境验收）
+
+新增双向互译、网页原文下方双语显示，以及百度/Microsoft/Google/DeepL 官方 API 接入。商店描述应使用“用户自行配置翻译服务”，不能宣传免费无限调用第三方翻译软件。
+
+新增 `activeTab` 权限用于用户点击工具栏后确定当前页面、执行全文及网站暂停操作；API 域名继续按需授权。正文仅在用户启动全文翻译后发送，排除表单编辑区和隐藏内容，可能包含最小行内格式。使用更新后的隐私政策，并在发布前完成真实账户接口、DeepL 直连及 Chrome/Edge 人工兼容性验证。

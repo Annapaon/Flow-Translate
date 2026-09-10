@@ -5,6 +5,8 @@
 > 首期目标平台：Chrome、Microsoft Edge  
 > 产品形态：Manifest V3 浏览器扩展
 
+后续扩展方案（2026-09-09）：[功能实现路径与技术方案](docs/NEXT_PHASE_IMPLEMENTATION_PLAN.md)。涵盖双向互译、轻量阅读功能、网页全文双语排版和百度/Microsoft/Google/DeepL 官方 API 接入；属于后续规划，不改变本文首期范围。
+
 ## 1. 项目概述
 
 本项目旨在开发一款浏览器划词翻译扩展。用户在网页中选择文字后，可以根据个人设置自动发起翻译，或点击选区附近的小圆点手动翻译。翻译结果通过大语言模型流式生成，并显示在网页浮窗或浏览器侧边栏中。
@@ -51,6 +53,8 @@
 | 端到端测试 | Playwright | 测试真实浏览器中的划词与翻译流程 |
 | 代码规范 | ESLint、Prettier | 统一代码风格 |
 | 自动化 | GitHub Actions | 测试、构建和发布安装包 |
+
+一期实际落地（2026-09-08）：UI 使用 React 状态和原生 CSS，配置导入使用 Zod；未使用的 Zustand、React Hook Form、Tailwind 依赖已移除。Vitest 和 Playwright 已落地，整合验证见 [一期核对报告](docs/PHASE1_REVIEW.md)。
 
 ## 4. 系统架构
 

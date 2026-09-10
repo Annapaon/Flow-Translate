@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ProviderType, TranslatorSettings } from "./types";
 
-const providerSchema = z.enum(["openai-compatible", "anthropic", "gemini", "ollama", "lm-studio", "xinference", "vllm", "sglang"]);
+const providerSchema = z.enum(["openai-compatible", "anthropic", "gemini", "ollama", "lm-studio", "xinference", "vllm", "sglang", "baidu", "microsoft", "google", "deepl"]);
 const headerName = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const ipv4Pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
@@ -87,9 +87,10 @@ export function sanitizeHeaders(headers: Record<string, string>, english = false
 }
 
 const profileSchema = z.object({
+  kind: z.enum(["llm", "machine"]).optional(), appId: z.string().max(300).optional(), region: z.string().max(100).optional(),
   id: z.string().min(1).max(100), enabled: z.boolean(), provider: providerSchema,
   name: z.string().min(1).max(100), apiBaseUrl: z.string().min(1).max(2_000), apiKey: z.string().max(8_000),
-  model: z.string().min(1).max(300), temperature: z.number().min(0).max(2), timeoutMs: z.number().int().min(5_000).max(300_000),
+  model: z.string().max(300), temperature: z.number().min(0).max(2), timeoutMs: z.number().int().min(5_000).max(300_000),
   maxOutputTokens: z.number().int().min(64).max(131_072), customHeaders: z.record(z.string(), z.string()),
   authMode: z.enum(["bearer", "x-api-key", "both"]).optional().default("bearer")
 }).strict();
@@ -100,20 +101,27 @@ const scenePromptsSchema = z.object({
 }).strict();
 
 const importSchema = z.object({
+  schemaVersion: z.number().int().min(1).max(2).optional(),
+  bidirectional: z.boolean().optional(), pairLanguage: z.string().min(1).max(100).optional(), smartOutput: z.boolean().optional(),
+  terms: z.array(z.object({ source: z.string().max(200), target: z.string().max(300), sourceLanguage: z.string().max(100), targetLanguage: z.string().max(100), preserve: z.boolean() }).strict()).max(100).optional(),
   modelProfiles: z.array(profileSchema).min(1).max(30), activeModelId: z.string().max(100).optional(),
-  uiLanguage: z.enum(["zh-CN", "en"]).optional(), targetLanguage: z.string().min(1).max(100).optional(),
+  uiLanguage: z.enum(["zh-CN", "en"]).optional(), keyStorage: z.enum(["local", "session"]).optional(),
+  targetLanguage: z.string().min(1).max(100).optional(),
   sourceLanguage: z.string().min(1).max(100).optional(), outputMode: z.enum(["translation", "explanation", "vocabulary", "grammar"]).optional(),
   translationScene: z.enum(["general", "technical", "academic", "business"]).optional(),
   triggerMode: z.enum(["click", "auto"]).optional(), enableThinking: z.boolean().optional(),
   enableHistory: z.boolean().optional(), enableCache: z.boolean().optional(), siteAccessMode: z.enum(["blacklist", "whitelist"]).optional(),
   minChars: z.number().int().min(1).max(100).optional(), maxChars: z.number().int().min(100).max(20_000).optional(),
   systemPrompt: z.string().max(20_000).optional(), blockedSites: z.array(z.string().max(255)).max(500).optional(),
-  allowedSites: z.array(z.string().max(255)).max(500).optional(), scenePrompts: scenePromptsSchema.optional()
+  allowedSites: z.array(z.string().max(255)).max(500).optional(), sensitiveDefaultsApplied: z.boolean().optional(),
+  scenePrompts: scenePromptsSchema.optional()
 }).strip();
 
 export function validateImportedSettings(value: unknown, english = false): Partial<TranslatorSettings> {
   const parsed = importSchema.parse(value);
   for (const profile of parsed.modelProfiles) {
+    if (!["baidu", "microsoft", "google", "deepl"].includes(profile.provider) && !profile.model.trim()) throw new Error("模型名称不能为空 / Model is required");
+    if (profile.provider === "baidu" && !profile.appId?.trim()) throw new Error("百度 App ID 不能为空 / Baidu App ID is required");
     profile.apiBaseUrl = validateApiUrl(profile.apiBaseUrl, english);
     profile.customHeaders = sanitizeHeaders(profile.customHeaders, english);
   }
@@ -130,5 +138,5 @@ export function redactSensitive(value: string, secrets: string[] = []): string {
 }
 
 export function providerRequiresApiKey(provider: ProviderType): boolean {
-  return provider === "openai-compatible" || provider === "anthropic" || provider === "gemini";
+  return ["baidu", "microsoft", "google", "deepl"].includes(provider) || provider === "openai-compatible" || provider === "anthropic" || provider === "gemini";
 }

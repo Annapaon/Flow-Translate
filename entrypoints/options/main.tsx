@@ -1,34 +1,16 @@
+import { pausedSites, disabledSites } from "../../shared/site-access";
+import { TranslationPreferences } from "../../shared/TranslationPreferences";
+import { isMachine } from "../../core/services/capabilities";
 import React, { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { createModelProfile, getSettings, saveSettings } from "../../shared/settings";
-import { DEFAULT_SCENE_PROMPTS, DEFAULT_SETTINGS, TRANSLATION_SCENES, type ModelProfile, type ModelUsageEntry, type ProviderType, type TestConnectionResponse, type TranslationHistoryEntry, type TranslationScene, type TranslatorSettings } from "../../shared/types";
+import { DEFAULT_SCENE_PROMPTS, DEFAULT_SETTINGS, TRANSLATION_SCENES, type KeyStorageMode, type ModelProfile, type ModelUsageEntry, type ProviderType, type TestConnectionResponse, type TranslationHistoryEntry, type TranslationScene, type TranslatorSettings } from "../../shared/types";
 import { isLoopbackHost, providerRequiresApiKey, sanitizeHeaders, validateApiUrl, validateImportedSettings } from "../../shared/security";
+import { findProviderPreset, PROVIDER_PRESETS, providerDisplayName } from "../../core/providers/registry";
 import "./style.css";
 
 const LANGUAGES = ["简体中文", "繁體中文", "English", "日本語", "한국어", "Français", "Deutsch", "Español"];
 const SOURCE_LANGUAGES = ["自动检测", ...LANGUAGES];
-const PROVIDERS: Array<{ id: ProviderType; name: string; defaultUrl: string; modelPlaceholder: string }> = [
-  { id: "openai-compatible", name: "OpenAI（兼容接口）", defaultUrl: "https://api.openai.com/v1", modelPlaceholder: "gpt-4.1-mini" },
-  { id: "anthropic", name: "Anthropic（兼容接口）", defaultUrl: "https://api.anthropic.com/v1", modelPlaceholder: "claude-sonnet-4-5、ark-code-latest 或服务商模型名" },
-  { id: "gemini", name: "Gemini（Google 原生）", defaultUrl: "https://generativelanguage.googleapis.com/v1beta", modelPlaceholder: "gemini-2.5-flash" },
-  { id: "ollama", name: "Ollama（本地）", defaultUrl: "http://localhost:11434/v1", modelPlaceholder: "qwen3:8b" },
-  { id: "lm-studio", name: "LM Studio（本地）", defaultUrl: "http://localhost:1234/v1", modelPlaceholder: "已加载的模型名称" },
-  { id: "xinference", name: "Xinference（本地）", defaultUrl: "http://localhost:9997/v1", modelPlaceholder: "模型 UID" },
-  { id: "vllm", name: "vLLM（本地）", defaultUrl: "http://localhost:8000/v1", modelPlaceholder: "启动服务时指定的模型名称" },
-  { id: "sglang", name: "SGLang（本地）", defaultUrl: "http://localhost:30000/v1", modelPlaceholder: "启动服务时指定的模型名称" }
-];
-
-function providerName(provider: ProviderType): string {
-  return PROVIDERS.find((item) => item.id === provider)?.name ?? provider;
-}
-
-function providerDisplayName(provider: ProviderType, english: boolean): string {
-  if (!english) return providerName(provider);
-  return ({
-    "openai-compatible": "OpenAI (compatible API)", anthropic: "Anthropic (compatible API)", gemini: "Gemini (Google native)",
-    ollama: "Ollama (local)", "lm-studio": "LM Studio (local)", xinference: "Xinference (local)", vllm: "vLLM (local)", sglang: "SGLang (local)"
-  } satisfies Record<ProviderType, string>)[provider];
-}
 
 function headersToText(headers: Record<string, string>): string {
   return Object.entries(headers).map(([key, value]) => `${key}: ${value}`).join("\n");
@@ -153,7 +135,8 @@ function App() {
   function autoSave(settings: TranslatorSettings, message: string) {
     saveQueueRef.current = saveQueueRef.current
       .then(() => saveSettings(settings))
-      .then(() => announce(message));
+      .then(() => announce(message))
+      .catch(error => announce(error instanceof Error ? error.message : t("保存失败", "Save failed"), "error"));
   }
 
   function update<K extends keyof TranslatorSettings>(key: K, value: TranslatorSettings[K]) {
@@ -199,8 +182,9 @@ function App() {
     if (!editingProfile) return;
     setModalMessage(null);
     const profileDraft = draftProfile();
+    if (profileDraft.provider === "baidu" && !profileDraft.appId?.trim()) { setModalMessage({kind:"error",text:"请填写百度 App ID / Enter Baidu App ID"}); return; }
     const requiresKey = providerRequiresApiKey(profileDraft.provider);
-    if (!profileDraft.name.trim() || !profileDraft.model.trim() || !profileDraft.apiBaseUrl.trim() || (requiresKey && !profileDraft.apiKey.trim())) {
+    if (!profileDraft.name.trim() || (!isMachine(profileDraft.provider) && !profileDraft.model.trim()) || !profileDraft.apiBaseUrl.trim() || (requiresKey && !profileDraft.apiKey.trim())) {
       setModalMessage({ kind: "error", text: requiresKey ? t("请完整填写配置名称、模型名称、API 地址和 API Key。", "Enter a profile name, model, API URL, and API key.") : t("请完整填写配置名称、模型名称和 API 地址。", "Enter a profile name, model, and API URL.") });
       return;
     }
@@ -303,8 +287,9 @@ function App() {
     if (!editingProfile || testingDraft) return;
     setModalMessage(null);
     const profileDraft = draftProfile();
+    if (profileDraft.provider === "baidu" && !profileDraft.appId?.trim()) { setModalMessage({kind:"error",text:"请填写百度 App ID / Enter Baidu App ID"}); return; }
     const requiresKey = providerRequiresApiKey(profileDraft.provider);
-    if (!profileDraft.model.trim() || !profileDraft.apiBaseUrl.trim() || (requiresKey && !profileDraft.apiKey.trim())) {
+    if ((!isMachine(profileDraft.provider) && !profileDraft.model.trim()) || !profileDraft.apiBaseUrl.trim() || (requiresKey && !profileDraft.apiKey.trim())) {
       setModalMessage({ kind: "error", text: requiresKey ? t("测试前请先填写模型名称、API 地址和 API Key。", "Enter the model name, API URL, and API key before testing.") : t("测试前请先填写模型名称和 API 地址。", "Enter the model name and API URL before testing.") });
       return;
     }
@@ -338,6 +323,7 @@ function App() {
     if (!window.confirm(t("这会删除全部模型配置、API Key、历史、缓存和使用量统计，并恢复默认设置。确定继续吗？", "This deletes all model profiles, API keys, history, cache, and usage statistics, then restores defaults. Continue?"))) return;
     await saveQueueRef.current;
     await browser.runtime.sendMessage({ type: "clear-local-data" });
+    await Promise.all([pausedSites.setValue([]), disabledSites.setValue([])]);
     await saveSettings(DEFAULT_SETTINGS);
     setForm(await getSettings());
     setHistory([]);
@@ -358,7 +344,7 @@ function App() {
       <aside className="settings-nav" aria-label={t("设置菜单", "Settings menu")}>
         <button className={activeSection === "basic" ? "selected" : ""} onClick={() => setActiveSection("basic")}><span>01</span><div><strong>{t("基本信息", "General")}</strong><small>{t("界面、隐私与网站范围", "Interface, privacy, and sites")}</small></div></button>
         <button className={activeSection === "translation" ? "selected" : ""} onClick={() => setActiveSection("translation")}><span>02</span><div><strong>{t("翻译配置", "Translation")}</strong><small>{t("语言与翻译行为", "Languages and behavior")}</small></div></button>
-        <button className={activeSection === "prompts" ? "selected" : ""} onClick={() => setActiveSection("prompts")}><span>03</span><div><strong>{t("提示词设置", "Prompts")}</strong><small>{t("按场景配置提示词", "Prompts by scene")}</small></div></button>
+        <button disabled={isMachine(form.modelProfiles.find(p=>p.id===form.activeModelId)?.provider ?? form.provider)} className={activeSection === "prompts" ? "selected" : ""} onClick={() => setActiveSection("prompts")}><span>03</span><div><strong>{t("提示词设置", "Prompts")}</strong><small>{t("按场景配置提示词", "Prompts by scene")}</small></div></button>
         <button className={activeSection === "models" ? "selected" : ""} onClick={() => setActiveSection("models")}><span>04</span><div><strong>{t("模型服务", "Models")}</strong><small>{t("API 与模型管理", "API and model management")}</small></div></button>
         <button className={activeSection === "history" ? "selected" : ""} onClick={() => setActiveSection("history")}><span>05</span><div><strong>{t("翻译历史", "History")}</strong><small>{t("搜索与收藏记录", "Search and favorites")}</small></div></button>
         <button className={activeSection === "data" ? "selected" : ""} onClick={() => setActiveSection("data")}><span>06</span><div><strong>{t("配置管理", "Data")}</strong><small>{t("导入与导出设置", "Import and export")}</small></div></button>
@@ -376,18 +362,19 @@ function App() {
         </div>
         <label>{t("网站访问模式", "Site access mode")}<select value={form.siteAccessMode} onChange={(event) => update("siteAccessMode", event.target.value as TranslatorSettings["siteAccessMode"])}><option value="blacklist">{t("除黑名单外全部启用", "Enable except blocked sites")}</option><option value="whitelist">{t("仅在白名单网站启用", "Enable only on allowed sites")}</option></select></label>
         {form.siteAccessMode === "blacklist"
-          ? <label>{t("禁用网站", "Blocked sites")}<textarea rows={3} value={form.blockedSites.join("\n")} onChange={(event) => update("blockedSites", event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))} placeholder={"bank.example.com\n*.private.example.com"} /><small>{t("每行一个域名，同时匹配其子域名。", "One domain per line; subdomains are included.")}</small></label>
+          ? <label>{t("禁用网站", "Blocked sites")}<textarea rows={3} value={form.blockedSites.join("\n")} onChange={(event) => update("blockedSites", event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))} placeholder={"bank.example.com\n*.private.example.com"} /><small>{t("每行一个域名，同时匹配其子域名。已内置常见银行、支付和密码管理器站点，可自行增删。", "One domain per line; subdomains are included. Common banking, payment, and password-manager sites are built in and can be adjusted freely.")}</small></label>
           : <label>{t("允许网站", "Allowed sites")}<textarea rows={3} value={form.allowedSites.join("\n")} onChange={(event) => update("allowedSites", event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))} placeholder={"docs.example.com\n*.company.example.com"} /><small>{t("白名单为空时所有网站均不启用。", "No site is enabled when this list is empty.")}</small></label>}
       </section>}
 
       {activeSection === "translation" && <section className="card">
+        <TranslationPreferences settings={form} update={patch => { const next = {...form,...patch}; setForm(next); autoSave(next,t("设置已保存", "Settings saved")); }} />
         <div className="section-head"><div><span className="step">02</span><h2>{t("翻译配置", "Translation settings")}</h2><p>{t("设置翻译语言、触发行为和输出方式。", "Configure languages, trigger behavior, and output.")}</p></div></div>
         <div className="grid">
-          <label>{t("源语言", "Source language")}<select value={form.sourceLanguage} onChange={(event) => update("sourceLanguage", event.target.value)}>{SOURCE_LANGUAGES.map((language) => <option key={language}>{en && language === "自动检测" ? "Auto-detect" : language}</option>)}</select></label>
-          <label>{t("默认目标语言", "Default target language")}<select value={form.targetLanguage} onChange={(event) => update("targetLanguage", event.target.value)}>{LANGUAGES.map((language) => <option key={language}>{language}</option>)}</select></label>
+          <label>{t("源语言", "Source language")}<select disabled={form.bidirectional} value={form.sourceLanguage} onChange={(event) => update("sourceLanguage", event.target.value)}>{SOURCE_LANGUAGES.map((language) => <option key={language} value={language}>{en && language === "自动检测" ? "Auto-detect" : language}</option>)}</select></label>
+          <label>{t("默认目标语言", "Default target language")}<select disabled={form.bidirectional} value={form.targetLanguage} onChange={(event) => update("targetLanguage", event.target.value)}>{LANGUAGES.map((language) => <option key={language}>{language}</option>)}</select></label>
           <label>{t("触发方式", "Trigger mode")}<select value={form.triggerMode} onChange={(event) => update("triggerMode", event.target.value as "click" | "auto")}><option value="click">{t("点击圆点翻译", "Click the dot")}</option><option value="auto">{t("选择后自动翻译", "Translate automatically")}</option></select></label>
-          <label>{t("思考过程", "Reasoning")}<select value={form.enableThinking ? "on" : "off"} onChange={(event) => update("enableThinking", event.target.value === "on")}><option value="off">{t("关闭（默认）", "Off (default)")}</option><option value="on">{t("开启并显示", "On and visible")}</option></select></label>
-          <label>{t("输出模式", "Output mode")}<select value={form.outputMode} onChange={(event) => update("outputMode", event.target.value as TranslatorSettings["outputMode"])}><option value="translation">{t("仅输出译文", "Translation only")}</option><option value="explanation">{t("译文与表达解释", "Translation and explanation")}</option><option value="vocabulary">{t("译文与重点词汇", "Translation and vocabulary")}</option><option value="grammar">{t("译文与语法说明", "Translation and grammar")}</option></select></label>
+          <label>{t("思考过程", "Reasoning")}<select disabled={isMachine(form.modelProfiles.find(p=>p.id===form.activeModelId)?.provider ?? form.provider)} value={form.enableThinking ? "on" : "off"} onChange={(event) => update("enableThinking", event.target.value === "on")}><option value="off">{t("关闭（默认）", "Off (default)")}</option><option value="on">{t("开启并显示", "On and visible")}</option></select></label>
+          <label>{t("输出模式", "Output mode")}<select disabled={isMachine(form.modelProfiles.find(p=>p.id===form.activeModelId)?.provider ?? form.provider)} value={form.outputMode} onChange={(event) => update("outputMode", event.target.value as TranslatorSettings["outputMode"])}><option value="translation">{t("仅输出译文", "Translation only")}</option><option value="explanation">{t("译文与表达解释", "Translation and explanation")}</option><option value="vocabulary">{t("译文与重点词汇", "Translation and vocabulary")}</option><option value="grammar">{t("译文与语法说明", "Translation and grammar")}</option></select></label>
           <label>{t("选区字符范围", "Selection length")}<div className="range"><input type="number" min="1" max="100" value={form.minChars} onChange={(event) => update("minChars", Number(event.target.value))} /><span>{t("至", "to")}</span><input type="number" min="100" max="20000" value={form.maxChars} onChange={(event) => update("maxChars", Number(event.target.value))} /></div></label>
         </div>
       </section>}
@@ -406,7 +393,7 @@ function App() {
       </section>}
 
       {activeSection === "models" && <section className="card">
-        <div className="section-head model-head"><div><span className="step">04</span><h2>{t("大模型服务配置", "Model providers")}</h2><p>{t("添加多个云端或本地模型，并在工具栏快速切换。", "Add cloud or local models and switch them from the toolbar.")}</p></div><button type="button" className="add" onClick={addProfile}>＋ {t("添加模型", "Add model")}</button></div>
+        <div className="section-head model-head"><div><span className="step">04</span><h2>{t("翻译服务配置", "Translation services")}</h2><p>{t("添加多个云端或本地模型，并在工具栏快速切换。", "Add cloud or local models and switch them from the toolbar.")}</p></div><button type="button" className="add" onClick={addProfile}>＋ {t("添加服务", "Add service")}</button></div>
         <div className="models">{form.modelProfiles.map((profile) => (
           <article className={`model ${form.activeModelId === profile.id ? "active" : ""} ${!profile.enabled ? "disabled" : ""}`} key={profile.id} onClick={() => editProfile(profile)}>
             <div className="model-card-head"><span className={`status ${profile.enabled ? "on" : ""}`}>{profile.enabled ? t("已启用", "Enabled") : t("已停用", "Disabled")}</span>{form.activeModelId === profile.id && <span className="default-badge">{t("默认", "Default")}</span>}<label className="switch" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={profile.enabled} onChange={() => toggleProfile(profile.id)} /><span /></label></div>
@@ -414,7 +401,8 @@ function App() {
             <div className="profile-model">{providerDisplayName(profile.provider, en)} · {profile.model || t("未配置模型", "Model not configured")}</div>
             <div className="profile-url">{profile.apiBaseUrl}</div>
             {(() => { const usage = modelUsage.find((entry) => entry.modelProfileId === profile.id); return <div className="usage-stats">
-              <span><strong>{formatCount(usage?.requestCount ?? 0)}</strong>{t("次请求", "requests")}</span>
+              <span><strong>{formatCount(usage?.requestCount ?? 0)}</strong>{t("次完成", "completed")}</span>
+              <span><strong>{formatCount(usage?.serviceCallCount ?? 0)}</strong>{t("次 API 尝试", "API attempts")}</span>
               <span><strong>{formatCount(usage?.inputCharacters ?? 0)}</strong>{t("输入字符", "input chars")}</span>
               <span><strong>{formatCount(usage?.outputCharacters ?? 0)}</strong>{t("输出字符", "output chars")}</span>
               <button type="button" disabled={!usage} onClick={(event) => { event.stopPropagation(); void resetModelUsage(profile.id); }}>{t("清零", "Reset")}</button>
@@ -423,7 +411,18 @@ function App() {
             <div className="card-actions"><button type="button" disabled={!profile.enabled || testingId === profile.id} onClick={(event) => { event.stopPropagation(); testProfile(profile); }}>{testingId === profile.id ? t("测试中…", "Testing…") : t("测试", "Test")}</button><span>{t("点击卡片编辑 →", "Click card to edit →")}</span></div>
           </article>
         ))}</div>
-        <p className="warning">{t("API Key 保存在浏览器扩展的本地存储中，本地存储不是系统级密钥保险箱。", "API keys are stored in extension-local storage, which is not a system-level secret vault.")}</p>
+        <label>{t("API Key 保存方式", "API key storage mode")}
+          <select value={form.keyStorage} onChange={(event) => update("keyStorage", event.target.value as KeyStorageMode)}>
+            <option value="local">{t("本地保存（长期使用）", "Local storage (persistent)")}</option>
+            <option value="session">{t("会话保存（关闭浏览器后清除）", "Session storage (cleared when the browser closes)")}</option>
+          </select>
+          <small>{form.keyStorage === "session"
+            ? t("会话模式下 API Key 保存在浏览器会话存储中，关闭浏览器后需要重新填写；切换保存方式会立即迁移已填写的 Key。", "In session mode API keys live in browser session storage and must be re-entered after the browser closes. Switching modes migrates existing keys immediately.")
+            : t("本地模式便于长期使用；如果希望缩小密钥暴露窗口，可切换为会话保存。", "Local mode is convenient for long-term use; switch to session storage to shrink the exposure window of your keys.")}</small>
+        </label>
+        <p className="warning">{form.keyStorage === "session"
+          ? t("API Key 保存在浏览器会话存储中，关闭浏览器即清除；扩展存储不是系统级密钥保险箱。", "API keys are kept in browser session storage and cleared when the browser closes; extension storage is not a system-level secret vault.")
+          : t("API Key 保存在浏览器扩展的本地存储中，本地存储不是系统级密钥保险箱。", "API keys are stored in extension-local storage, which is not a system-level secret vault.")}</p>
       </section>}
 
       {activeSection === "history" && <section className="card">
@@ -457,15 +456,18 @@ function App() {
     </div>
     {editingProfile && <div className="modal-backdrop" onMouseDown={() => setEditingProfile(null)}>
       <section className="modal" role="dialog" aria-modal="true" aria-label={t("模型设置", "Model settings")} onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><h2>{form.modelProfiles.some((profile) => profile.id === editingProfile.id) ? t("编辑模型", "Edit model") : t("添加模型", "Add model")}</h2><p>{t("配置云端兼容服务或本地推理服务。", "Configure a cloud or local inference service.")}</p></div><button type="button" onClick={() => setEditingProfile(null)}>×</button></header>
+        <header><div><h2>{form.modelProfiles.some((profile) => profile.id === editingProfile.id) ? t("编辑模型", "Edit model") : t("添加服务", "Add service")}</h2><p>{t("配置云端兼容服务或本地推理服务。", "Configure a cloud or local inference service.")}</p></div><button type="button" onClick={() => setEditingProfile(null)}>×</button></header>
         <div className="modal-body">
-          <div className="grid"><label>{t("服务类型", "Provider type")}<select value={editingProfile.provider} onChange={(event) => { const provider = event.target.value as ProviderType; const definition = PROVIDERS.find((item) => item.id === provider)!; setEditingProfile({ ...editingProfile, provider, apiBaseUrl: definition.defaultUrl, authMode: provider === "anthropic" ? "x-api-key" : "bearer" }); }}>{PROVIDERS.map((provider) => <option key={provider.id} value={provider.id}>{providerDisplayName(provider.id, en)}</option>)}</select></label><label>{t("配置名称", "Profile name")}<input value={editingProfile.name} onChange={(event) => setEditingProfile({ ...editingProfile, name: event.target.value })} placeholder={t("例如：本地推理服务", "For example: Local inference")} /></label></div>
-          <label>{t("模型名称", "Model name")}<input value={editingProfile.model} onChange={(event) => setEditingProfile({ ...editingProfile, model: event.target.value })} placeholder={PROVIDERS.find((item) => item.id === editingProfile.provider)?.modelPlaceholder} /></label>
+          <div className="grid"><label>{t("服务类型", "Provider type")}<select value={editingProfile.provider} onChange={(event) => { const provider = event.target.value as ProviderType; const definition = findProviderPreset(provider); setEditingProfile({ ...editingProfile, provider, apiBaseUrl: definition.defaultUrl, authMode: provider === "anthropic" ? "x-api-key" : "bearer" }); }}>{PROVIDER_PRESETS.map((provider) => <option key={provider.id} value={provider.id}>{providerDisplayName(provider.id, en)}</option>)}</select></label><label>{t("配置名称", "Profile name")}<input value={editingProfile.name} onChange={(event) => setEditingProfile({ ...editingProfile, name: event.target.value })} placeholder={t("例如：本地推理服务", "For example: Local inference")} /></label></div>
+          {!isMachine(editingProfile.provider) && <label>{t("模型名称", "Model name")}<input value={editingProfile.model} onChange={(event) => setEditingProfile({ ...editingProfile, model: event.target.value })} placeholder={en ? findProviderPreset(editingProfile.provider).englishModelPlaceholder : findProviderPreset(editingProfile.provider).modelPlaceholder} /></label>}
+          {editingProfile.provider === "baidu" && <label>App ID<input value={editingProfile.appId ?? ""} onChange={e=>setEditingProfile({...editingProfile,appId:e.target.value})}/></label>}
+          {editingProfile.provider === "microsoft" && <label>Region<input value={editingProfile.region ?? ""} onChange={e=>setEditingProfile({...editingProfile,region:e.target.value})}/><small>{t("区域资源需要填写 Region；全局资源可留空。", "Region is required for regional resources; global resources can omit it.")}</small></label>}
+          {editingProfile.provider === "deepl" && <label>{t("DeepL API 套餐", "DeepL API plan")}<select value={editingProfile.apiBaseUrl.includes("api-free") ? "free" : "pro"} onChange={e=>setEditingProfile({...editingProfile,apiBaseUrl:e.target.value === "free" ? "https://api-free.deepl.com/v2/translate" : "https://api.deepl.com/v2/translate"})}><option value="free">Free</option><option value="pro">Pro</option></select><small>{t("也可在下方填写自己管理的兼容网关地址。", "You may also enter your own compatible gateway URL below.")}</small></label>}
           <label>API Base URL<input value={editingProfile.apiBaseUrl} onChange={(event) => setEditingProfile({ ...editingProfile, apiBaseUrl: event.target.value })} placeholder="https://api.openai.com/v1" /><small>{t("云端服务需使用 HTTPS；局域网内的模型服务可以使用 HTTP（如 http://192.168.1.50:11434/v1、http://nas.local:8000/v1）。保存或测试时，扩展会请求访问该 API 地址，仅用于发送模型翻译请求，不会读取该网站内容。", "Cloud services must use HTTPS; model services on your local network may use HTTP (e.g. http://192.168.1.50:11434/v1 or http://nas.local:8000/v1). When saving or testing, the extension requests access to this API endpoint only to send model translation requests; it does not read that website's content.")}</small></label>
-          <label>API Key{!["openai-compatible", "anthropic", "gemini"].includes(editingProfile.provider) && t("（可选）", " (optional)")}<input type="password" autoComplete="new-password" value={editingProfile.apiKey} onChange={(event) => setEditingProfile({ ...editingProfile, apiKey: event.target.value })} placeholder={["openai-compatible", "anthropic", "gemini"].includes(editingProfile.provider) ? "API Key" : t("本地服务通常无需填写", "Usually not required for local services")} /></label>
+          <label>API Key{!providerRequiresApiKey(editingProfile.provider) && t("（可选）", " (optional)")}<input type="password" autoComplete="new-password" value={editingProfile.apiKey} onChange={(event) => setEditingProfile({ ...editingProfile, apiKey: event.target.value })} placeholder={providerRequiresApiKey(editingProfile.provider) ? "API Key" : t("本地服务通常无需填写", "Usually not required for local services")} /></label>
           {editingProfile.provider === "anthropic" && <label>{t("鉴权方式", "Authentication")}<select value={editingProfile.authMode} onChange={(event) => setEditingProfile({ ...editingProfile, authMode: event.target.value as ModelProfile["authMode"] })}><option value="x-api-key">x-api-key（Anthropic 官方）</option><option value="bearer">Authorization Bearer（常见第三方）</option><option value="both">{t("同时发送（仅兼容需要时）", "Send both (compatibility only)")}</option></select></label>}
-          <div className="grid"><label>Temperature<input type="number" min="0" max="2" step="0.1" value={editingProfile.temperature} onChange={(event) => setEditingProfile({ ...editingProfile, temperature: Number(event.target.value) })} /></label><label>{t("超时时间（秒）", "Timeout (seconds)")}<input type="number" min="5" max="300" value={editingProfile.timeoutMs / 1000} onChange={(event) => setEditingProfile({ ...editingProfile, timeoutMs: Number(event.target.value) * 1000 })} /></label><label>{t("最大输出 Token", "Maximum output tokens")}<input type="number" min="64" max="131072" value={editingProfile.maxOutputTokens} onChange={(event) => setEditingProfile({ ...editingProfile, maxOutputTokens: Number(event.target.value) })} /></label></div>
-          <label>{t("自定义请求头", "Custom headers")}<textarea rows={3} value={headersDraft} onChange={(event) => setHeadersDraft(event.target.value)} placeholder={"X-Organization: example\nX-Custom-Key: value"} /><small>{t("每行一个 Header，格式为“名称: 值”。同名项可以覆盖默认请求头。", "One header per line in Name: Value format. Matching names override default headers.")}</small></label>
+          <div className="grid"><label hidden={isMachine(editingProfile.provider)}>Temperature<input type="number" min="0" max="2" step="0.1" value={editingProfile.temperature} onChange={(event) => setEditingProfile({ ...editingProfile, temperature: Number(event.target.value) })} /></label><label>{t("超时时间（秒）", "Timeout (seconds)")}<input type="number" min="5" max="300" value={editingProfile.timeoutMs / 1000} onChange={(event) => setEditingProfile({ ...editingProfile, timeoutMs: Number(event.target.value) * 1000 })} /></label><label hidden={isMachine(editingProfile.provider)}>{t("最大输出 Token", "Maximum output tokens")}<input type="number" min="64" max="131072" value={editingProfile.maxOutputTokens} onChange={(event) => setEditingProfile({ ...editingProfile, maxOutputTokens: Number(event.target.value) })} /></label></div>
+          <label hidden={isMachine(editingProfile.provider)}>{t("自定义请求头", "Custom headers")}<textarea rows={3} value={headersDraft} onChange={(event) => setHeadersDraft(event.target.value)} placeholder={"X-Organization: example\nX-Custom-Key: value"} /><small>{t("每行一个 Header，格式为“名称: 值”。同名项可以覆盖默认请求头。", "One header per line in Name: Value format. Matching names override default headers.")}</small></label>
           <label className="modal-toggle"><input type="checkbox" checked={editingProfile.enabled} onChange={(event) => setEditingProfile({ ...editingProfile, enabled: event.target.checked })} /><span>{t("启用此模型", "Enable this model")}</span></label>
         </div>
         {modalMessage && <div className={`modal-message ${modalMessage.kind}`} role={modalMessage.kind === "error" ? "alert" : "status"}>{modalMessage.text}</div>}

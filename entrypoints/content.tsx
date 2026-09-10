@@ -1,12 +1,15 @@
+import { installPageTranslation } from "../content/page-translation/controller";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { PublicTranslatorSettings, ServerMessage } from "../shared/types";
 import { DEFAULT_PUBLIC_SETTINGS } from "../shared/types";
+import { ROUTE_CHANGE_EVENT } from "../shared/constants";
 
 interface SelectionSnapshot {
   text: string;
   x: number;
   y: number;
+  isCurrent?: () => boolean;
 }
 
 interface Point {
@@ -120,7 +123,8 @@ function readSelection(): SelectionSnapshot | null {
     if (!text) return null;
     const rect = active.getBoundingClientRect();
     const caret = textControlCaretPoint(active, end);
-    return { text, x: rect.left + caret.x + window.scrollX + 5, y: rect.top + caret.y + window.scrollY + 5 };
+    return { text, x: rect.left + caret.x + window.scrollX + 5, y: rect.top + caret.y + window.scrollY + 5,
+      isCurrent: () => document.activeElement === active && active.selectionStart === start && active.selectionEnd === end && active.value.slice(start!, end!).trim() === text };
   }
 
   const selection = document.getSelection();
@@ -130,7 +134,15 @@ function readSelection(): SelectionSnapshot | null {
   const range = selection.getRangeAt(0);
   const rects = range.getClientRects();
   const rect = rects.length ? rects[rects.length - 1]! : range.getBoundingClientRect();
-  return { text, x: rect.right + window.scrollX + 7, y: rect.bottom + window.scrollY + 7 };
+  const { startContainer, startOffset, endContainer, endOffset } = range;
+  return { text, x: rect.right + window.scrollX + 7, y: rect.bottom + window.scrollY + 7,
+    isCurrent: () => {
+      const current = document.getSelection();
+      if (!current || current.isCollapsed || !current.rangeCount) return false;
+      const next = current.getRangeAt(0);
+      return next.startContainer === startContainer && next.startOffset === startOffset &&
+        next.endContainer === endContainer && next.endOffset === endOffset && current.toString().trim() === text;
+    } };
 }
 
 function matchesCurrentSite(sites: string[]): boolean {
@@ -152,6 +164,12 @@ function isCurrentSiteBlocked(settings: PublicTranslatorSettings): boolean {
 }
 
 function App() {
+  const [actualService, setActualService] = useState("");
+  const [showReasoning, setShowReasoning] = useState(false);
+  const [actualTarget, setActualTarget] = useState("");
+  const [uncertainDirection, setUncertainDirection] = useState(false);
+  const [selectedService, setSelectedService] = useState("");
+  const [sitePaused, setSitePaused] = useState(false);
   const [settings, setSettings] = useState<PublicTranslatorSettings>(DEFAULT_PUBLIC_SETTINGS);
   const [selection, setSelection] = useState<SelectionSnapshot | null>(null);
   const [open, setOpen] = useState(false);
@@ -166,6 +184,8 @@ function App() {
   const [copiedField, setCopiedField] = useState<"source" | "result" | null>(null);
   const [manualPosition, setManualPosition] = useState<Point | null>(null);
   const [viewportRevision, setViewportRevision] = useState(0);
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
   const portRef = useRef<ReturnType<typeof browser.runtime.connect> | null>(null);
   const requestIdRef = useRef<string | null>(null);
   const autoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -185,7 +205,7 @@ function App() {
 
   useEffect(() => {
     const settingsPort = browser.runtime.connect({ name: "public-settings" });
-    settingsPort.onMessage.addListener((value: PublicTranslatorSettings) => setSettings(value));
+    settingsPort.onMessage.addListener((value: PublicTranslatorSettings) => { setSettings(value); setSitePaused(Boolean(value.paused)); });
     return () => settingsPort.disconnect();
   }, []);
 
@@ -208,8 +228,11 @@ function App() {
     requestIdRef.current = null;
   }
 
-  function translate(snapshot: SelectionSnapshot) {
+  function translate(snapshot: SelectionSnapshot, refresh = false, target?: string) {
+    if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
+    if (sitePaused) return;
     cancelCurrent();
+    setActualTarget("");
     setSelection(snapshot);
     setManualPosition(null);
     setOpen(true);
@@ -228,7 +251,8 @@ function App() {
     let settled = false;
     portRef.current = port;
     port.onMessage.addListener((message: ServerMessage) => {
-      if (message.requestId !== requestId) return;
+      if (message.requestId !== requestId || requestIdRef.current !== requestId) return;
+      if (message.type === "start") { setActualTarget(message.targetLanguage ?? ""); setUncertainDirection(Boolean(message.uncertain)); setShowReasoning(Boolean(message.enableThinking)); setActualService(message.serviceName ?? ""); }
       if (message.type === "retry") {
         setStatus("loading");
         setReconnecting(true);
@@ -271,7 +295,7 @@ function App() {
     port.postMessage({
       type: "translate",
       requestId,
-      text: snapshot.text,
+      text: snapshot.text, refresh, target, serviceId: selectedService || undefined, langHint: document.getSelection()?.anchorNode?.parentElement?.closest("[lang]")?.getAttribute("lang") ?? document.documentElement.lang,
       pageTitle: document.title,
       pageUrl: location.href
     });
@@ -323,10 +347,14 @@ function App() {
   }
 
   useEffect(() => {
+    let pointerSelecting = false;
     const update = (event: Event) => {
       if (event.composedPath().some((node) => node instanceof HTMLElement && node.id === "flow-translate-root")) return;
+      if (interactingWithCardRef.current || document.activeElement?.id === "flow-translate-root") return;
+      if (event.type === "pointerup") pointerSelecting = false;
       if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
-      if (!settings.privacyConsentAccepted || isCurrentSiteBlocked(settings)) {
+      if (pointerSelecting) return;
+      if (sitePaused || !settings.privacyConsentAccepted || isCurrentSiteBlocked(settings)) {
         cancelCurrent();
         setOpen(false);
         setSelection(null);
@@ -340,7 +368,7 @@ function App() {
         return;
       }
       const limited = { ...snapshot, text: snapshot.text.slice(0, settings.maxChars) };
-      if (open && limited.text !== selection?.text) {
+      if (limited.text !== selectionRef.current?.text) {
         cancelCurrent();
         setOpen(false);
         setResult("");
@@ -348,18 +376,30 @@ function App() {
       }
       setSelection(limited);
       if (settings.triggerMode === "auto") {
-        autoTimerRef.current = setTimeout(() => translate(limited), 400);
+        autoTimerRef.current = setTimeout(() => {
+          autoTimerRef.current = null;
+          if (limited.isCurrent?.()) translate(limited);
+        }, 400);
       }
     };
 
+    const startSelection = (event: PointerEvent) => {
+      if (event.composedPath().some((node) => node instanceof HTMLElement && node.id === "flow-translate-root")) return;
+      pointerSelecting = true;
+      if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
+    };
+    document.addEventListener("pointerdown", startSelection, true);
+    document.addEventListener("selectionchange", update);
     document.addEventListener("pointerup", update, true);
     document.addEventListener("keyup", update, true);
     return () => {
+      document.removeEventListener("pointerdown", startSelection, true);
+      document.removeEventListener("selectionchange", update);
       document.removeEventListener("pointerup", update, true);
       document.removeEventListener("keyup", update, true);
       if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
     };
-  }, [settings, open, selection?.text]);
+  }, [settings, sitePaused]);
 
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -378,9 +418,38 @@ function App() {
     return () => document.removeEventListener("selectionchange", handleSelectionChange);
   }, [selection]);
 
+  // SPA route changes (plan §4.1): the MAIN-world watcher broadcasts
+  // pushState/replaceState as ROUTE_CHANGE_EVENT, and popstate/hashchange
+  // cover back/forward and hash navigation. On any real URL change, close the
+  // dot and overlay and cancel an in-flight request so results from the
+  // previous "page" never linger after navigation.
+  useEffect(() => {
+    let lastUrl = location.href;
+    const handleRouteChange = () => {
+      if (location.href === lastUrl) return;
+      lastUrl = location.href;
+      if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
+      cancelCurrent();
+      setOpen(false);
+      setSelection(null);
+      setResult("");
+      setReasoning("");
+    };
+    document.addEventListener(ROUTE_CHANGE_EVENT, handleRouteChange);
+    window.addEventListener("popstate", handleRouteChange);
+    window.addEventListener("hashchange", handleRouteChange);
+    return () => {
+      document.removeEventListener(ROUTE_CHANGE_EVENT, handleRouteChange);
+      window.removeEventListener("popstate", handleRouteChange);
+      window.removeEventListener("hashchange", handleRouteChange);
+    };
+    // Uses only refs and stable state setters; no reactive deps needed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const listener = (message: { type?: string; text?: string }) => {
-      if (!settings.privacyConsentAccepted || isCurrentSiteBlocked(settings)) return;
+      if (sitePaused || !settings.privacyConsentAccepted || isCurrentSiteBlocked(settings)) return;
       if (message.type === "external-translate" && message.text) {
         const snapshot = readSelection() ?? { text: message.text, x: window.innerWidth / 2, y: 80 };
         translate({ ...snapshot, text: message.text.slice(0, settings.maxChars) });
@@ -391,18 +460,30 @@ function App() {
     };
     browser.runtime.onMessage.addListener(listener);
     return () => browser.runtime.onMessage.removeListener(listener);
-  }, [settings]);
+  }, [settings, sitePaused]);
 
   useEffect(() => {
-    if (settings.privacyConsentAccepted && !isCurrentSiteBlocked(settings)) return;
+    if (!sitePaused && settings.privacyConsentAccepted && !isCurrentSiteBlocked(settings)) return;
+    document.dispatchEvent(new Event("flow-access-disabled"));
     cancelCurrent();
     setOpen(false);
     setSelection(null);
-  }, [settings]);
+  }, [settings, sitePaused]);
 
   useEffect(() => () => {
     cancelCurrent();
     portRef.current?.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const listener = (m: {type?: string}) => {
+      if (m.type !== "access-changed") return;
+      cancelCurrent(); setOpen(false); setSelection(null);
+      // Background rechecks current site policy before every request.
+      // The public-settings port supplies the current paused state.
+    };
+    browser.runtime.onMessage.addListener(listener);
+    return () => browser.runtime.onMessage.removeListener(listener);
   }, []);
 
   const en = settings.uiLanguage === "en";
@@ -430,7 +511,7 @@ function App() {
           onPointerUp={stopDragging}
           onPointerCancel={stopDragging}
         >
-          <div className="brand"><span className="dot" />{t("翻译为", "Translate to ")}{settings.targetLanguage}</div>
+          <div className="brand"><span className="dot" />{t("翻译为", "Translate to ")}{(actualTarget || settings.targetLanguage)}</div>
           <div className="actions">
             <button className="icon" title={t("打开设置", "Open settings")} aria-label={t("打开设置", "Open settings")} onClick={openOptions}>⚙ {t("设置", "Settings")}</button>
           </div>
@@ -447,7 +528,7 @@ function App() {
             <div className="label result-label"><span>{t("译文", "Translation")}</span>{status === "done" && result && <button className="edit-result" onClick={() => setEditingResult((value) => !value)}>{editingResult ? t("完成", "Done") : t("编辑", "Edit")}</button>}</div>
             <div className="box-wrap">
               {editingResult ? <textarea className="result-edit" value={result} onChange={(event) => setResult(event.target.value)} aria-label={t("编辑译文", "Edit translation")} /> : <div className={`result ${status === "error" ? "error" : ""}`}>
-                {settings.enableThinking && (reasoning || status === "loading" || status === "streaming") && (
+                {showReasoning && (reasoning || status === "loading" || status === "streaming") && (
                   <div className="thinking">
                     <button className="thinking-head" onClick={() => setReasoningOpen((value) => !value)}>
                       <span>{t("思考过程", "Reasoning")}</span><span>{reasoningOpen ? t("收起", "Collapse") : t("展开", "Expand")}</span>
@@ -464,7 +545,10 @@ function App() {
           </div>
         </div>
         <footer className="foot">
-          <span>{selection.text.length} {t("字符", "chars")} · {settings.model}{wasCached ? t(" · 已缓存", " · cached") : ""}</span>
+          <div><button className="link" disabled={status === "loading" || status === "streaming"} onClick={() => translate(selection, true)}>{t("重新翻译", "Translate again")}</button>
+          {settings.services && <select aria-label={t("翻译服务", "Translation service")} value={selectedService} onChange={e => setSelectedService(e.target.value)}><option value="">{t("当前服务", "Current service")}</option>{settings.services.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select>}
+          {settings.bidirectional && <button className="link" onClick={() => translate(selection, true, actualTarget === settings.pairLanguage ? "简体中文" : settings.pairLanguage)}>{uncertainDirection ? t("确认/切换方向", "Confirm / switch direction") : t("切换方向", "Switch direction")}</button>}</div>
+          <span>{selection.text.length} {t("字符", "chars")} · {actualService || settings.model}{wasCached ? t(" · 已缓存", " · cached") : ""}</span>
         </footer>
       </section>
     )}
@@ -475,6 +559,7 @@ export default defineContentScript({
   matches: ["<all_urls>"],
   cssInjectionMode: "ui",
   async main() {
+    installPageTranslation();
     const host = document.createElement("div");
     host.id = "flow-translate-root";
     const shadow = host.attachShadow({ mode: "open" });

@@ -1,43 +1,22 @@
+import { attachTranslationPort } from "../core/translation/port";
+import { pausedSites, disabledSites, isPaused } from "../shared/site-access";
 import { getPublicSettings, getSettings, watchPublicSettings } from "../shared/settings";
-import type { ClientMessage, ServerMessage, TestConnectionResponse, TranslatorSettings } from "../shared/types";
-import { isRetryableTranslationError, streamTranslation, testConnection } from "../core/openai";
+import type { TranslatorSettings } from "../shared/types";
+import { testConnection } from "../core/providers";
 import {
-  addHistory,
-  cacheTranslation,
   clearHistory,
   clearHistoryAndCache,
-  createCacheKey,
-  findCachedTranslation,
   deleteHistoryEntry,
   getHistory,
   getModelUsage,
   clearModelUsage,
   clearAllModelUsage,
-  recordModelUsage,
   toggleHistoryFavorite
 } from "../shared/history";
 
 export default defineBackground(() => {
   // Prevent content scripts from reading model credentials from extension storage.
   void browser.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
-
-  const retryDelay = (milliseconds: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
-    // An already-aborted signal never fires another abort event, so check
-    // first to fail immediately instead of waiting out the whole delay.
-    if (signal.aborted) {
-      reject(signal.reason);
-      return;
-    }
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, milliseconds);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(signal.reason);
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
 
   browser.runtime.onInstalled.addListener(() => {
     browser.contextMenus.create({
@@ -68,126 +47,17 @@ export default defineBackground(() => {
     }
     if (port.name === "public-settings") {
       const postSettings = (settings: Awaited<ReturnType<typeof getPublicSettings>>) => {
-        try { port.postMessage(settings); } catch { /* The page was closed. */ }
+        void isPaused(port.sender?.url ?? "").then(paused => { try { port.postMessage({ ...settings, paused }); } catch {} });
       };
       void getPublicSettings().then(postSettings);
       const unwatch = watchPublicSettings(postSettings);
-      port.onDisconnect.addListener(unwatch);
+      const unpause = pausedSites.watch(() => { void getPublicSettings().then(postSettings); });
+      const undisable = disabledSites.watch(() => { void getPublicSettings().then(postSettings); });
+      port.onDisconnect.addListener(() => { unwatch(); unpause(); undisable(); });
       return;
     }
-    if (port.name !== "translation-stream") {
-      port.disconnect();
-      return;
-    }
-    const portRequestIds = new Set<string>();
-    const portControllers = new Map<string, AbortController>();
-
-    const send = (message: ServerMessage) => {
-      try { port.postMessage(message); } catch { /* The page was closed. */ }
-    };
-
-    port.onMessage.addListener(async (rawMessage: unknown) => {
-      if (!rawMessage || typeof rawMessage !== "object" || !("type" in rawMessage)) return;
-      const message = rawMessage as ClientMessage;
-      if (message.type === "cancel") {
-        if (typeof message.requestId !== "string" || message.requestId.length > 100) return;
-        portControllers.get(message.requestId)?.abort();
-        portControllers.delete(message.requestId);
-        return;
-      }
-
-      if (message.type !== "translate" || typeof message.requestId !== "string" || message.requestId.length > 100) return;
-      if (typeof message.text !== "string" || message.text.length < 1 || message.text.length > 100_000) {
-        // Reject explicitly instead of dropping the message, so the caller's
-        // UI does not wait forever for a reply that never comes.
-        send({ type: "error", requestId: message.requestId, message: "翻译文本为空或超出长度限制 / The text is empty or exceeds the length limit" });
-        return;
-      }
-
-      portControllers.get(message.requestId)?.abort();
-      const controller = new AbortController();
-      portControllers.set(message.requestId, controller);
-      portRequestIds.add(message.requestId);
-      send({ type: "start", requestId: message.requestId });
-      let english = false;
-
-      try {
-        const settings = await getSettings();
-        english = settings.uiLanguage === "en";
-        if (!settings.privacyConsentAccepted) throw new Error(english ? "Accept the data handling notice before translating" : "请先同意数据处理说明再翻译");
-        const cacheKey = await createCacheKey(message.text, settings);
-        const recordHistory = (translatedText: string) => settings.enableHistory
-          ? addHistory({
-              sourceText: message.text,
-              translatedText,
-              targetLanguage: settings.targetLanguage,
-              model: settings.model,
-              pageTitle: message.pageTitle?.slice(0, 500),
-              pageUrl: message.pageUrl?.slice(0, 2_000)
-            })
-          : Promise.resolve();
-
-        if (settings.enableCache) {
-          const cached = await findCachedTranslation(cacheKey);
-          if (cached) {
-            send({ type: "delta", requestId: message.requestId, text: cached });
-            await recordHistory(cached);
-            send({ type: "finish", requestId: message.requestId, cached: true });
-            return;
-          }
-        }
-
-        const timeout = setTimeout(() => controller.abort("timeout"), settings.timeoutMs);
-        let translatedText = "";
-        try {
-          for (let attempt = 0; attempt < 3; attempt += 1) {
-            translatedText = "";
-            try {
-              await streamTranslation(
-                message.text,
-                settings,
-                controller.signal,
-                (text) => {
-                  translatedText += text;
-                  if (translatedText.length > 2_000_000) throw new Error(english ? "Model response exceeded the safety limit" : "模型响应超过安全限制");
-                  send({ type: "delta", requestId: message.requestId, text });
-                },
-                (text) => send({ type: "reasoning", requestId: message.requestId, text })
-              );
-              break;
-            } catch (error) {
-              if (controller.signal.aborted || attempt === 2 || !isRetryableTranslationError(error)) throw error;
-              send({ type: "retry", requestId: message.requestId, attempt: attempt + 1 });
-              await retryDelay(750 * 2 ** attempt, controller.signal);
-            }
-          }
-          await Promise.all([
-            settings.enableCache ? cacheTranslation(cacheKey, translatedText) : Promise.resolve(),
-            recordHistory(translatedText),
-            recordModelUsage(settings.activeModelId, message.text.length, translatedText.length)
-          ]);
-          send({ type: "finish", requestId: message.requestId });
-        } finally {
-          clearTimeout(timeout);
-        }
-      } catch (error) {
-        const messageText = controller.signal.aborted
-          ? (english ? "Translation cancelled or timed out" : "翻译已取消或请求超时")
-          : error instanceof Error ? error.message : (english ? "Translation request failed" : "翻译请求失败");
-        send({ type: "error", requestId: message.requestId, message: messageText });
-      } finally {
-        portControllers.delete(message.requestId);
-        portRequestIds.delete(message.requestId);
-      }
-    });
-
-    port.onDisconnect.addListener(() => {
-      for (const requestId of portRequestIds) {
-        portControllers.get(requestId)?.abort();
-        portControllers.delete(requestId);
-      }
-      portRequestIds.clear();
-    });
+    if (port.name === "translation-stream" || port.name === "page-translation") attachTranslationPort(port);
+    else port.disconnect();
   });
 
   browser.runtime.onMessage.addListener(async (message: { type?: string; settings?: TranslatorSettings } | null, sender) => {
@@ -198,6 +68,18 @@ export default defineBackground(() => {
       return { ok: true };
     }
     if (!extensionPage) return undefined;
+    if (message.type === "site-state" || message.type === "site-pause") {
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.url || !/^https?:/.test(tab.url)) return { error: "此页面不支持 / Unsupported page" };
+      const host = new URL(tab.url).hostname;
+      const sites = await pausedSites.getValue();
+      if (message.type === "site-pause" && "mode" in message) {
+        if (message.mode === "permanent") await disabledSites.setValue([...new Set([...await disabledSites.getValue(), host])]);
+        else if (message.mode === "restore-permanent") await disabledSites.setValue((await disabledSites.getValue()).filter(s => s !== host));
+        else if (message.mode === "resume" || message.mode === "session") await pausedSites.setValue(message.mode === "resume" ? sites.filter(s => s !== host) : [...new Set([...sites, host])]);
+      }
+      return { host, paused: (await pausedSites.getValue()).includes(host), permanent: (await disabledSites.getValue()).includes(host) };
+    }
     if (message.type === "get-history") return getHistory();
     if (message.type === "toggle-history-favorite" && "id" in message && typeof message.id === "string") {
       return toggleHistoryFavorite(message.id);
@@ -218,15 +100,7 @@ export default defineBackground(() => {
       return { ok: true };
     }
     if (message.type === "test-connection" && message.settings) {
-      try {
-        await testConnection(message.settings);
-        return { ok: true, message: message.settings.uiLanguage === "en" ? "Connected; the model returned content" : "连接成功，模型已返回内容" } satisfies TestConnectionResponse;
-      } catch (error) {
-        return {
-          ok: false,
-          message: error instanceof Error ? error.message : (message.settings.uiLanguage === "en" ? "Connection failed" : "连接失败")
-        } satisfies TestConnectionResponse;
-      }
+      return testConnection(message.settings);
     }
     return undefined;
   });

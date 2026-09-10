@@ -1,8 +1,16 @@
+import { DEFAULT_BLOCKED_SITES } from "./constants";
+
 export type TriggerMode = "click" | "auto";
+/**
+ * Where model API keys are persisted (plan §9.1):
+ * - "local": inside the settings blob in chrome.storage.local (survives restarts).
+ * - "session": in chrome.storage.session, wiped when the browser closes.
+ */
+export type KeyStorageMode = "local" | "session";
 export type OutputMode = "translation" | "explanation" | "vocabulary" | "grammar";
 export type TranslationScene = "general" | "technical" | "academic" | "business";
 export type SiteAccessMode = "blacklist" | "whitelist";
-export type ProviderType = "openai-compatible" | "anthropic" | "gemini" | "ollama" | "lm-studio" | "xinference" | "vllm" | "sglang";
+export type ProviderType = "openai-compatible" | "anthropic" | "gemini" | "ollama" | "lm-studio" | "xinference" | "vllm" | "sglang" | "baidu" | "microsoft" | "google" | "deepl";
 export type UiLanguage = "zh-CN" | "en";
 export type ScenePrompts = Record<TranslationScene, string>;
 
@@ -20,7 +28,13 @@ export const DEFAULT_SCENE_PROMPTS: ScenePrompts = {
   business: "使用专业、清晰、简洁且礼貌的商务表达，保留金额、日期、条款、责任主体和行动要求的准确性。根据上下文采用得体语气，避免模糊承诺或改变原文立场。"
 };
 
+export interface TermEntry { source: string; target: string; sourceLanguage: string; targetLanguage: string; preserve: boolean }
+
 export interface ModelProfile {
+  /** Legacy name retained to preserve exported configurations and profile IDs. */
+  kind?: "llm" | "machine";
+  appId?: string;
+  region?: string;
   id: string;
   enabled: boolean;
   provider: ProviderType;
@@ -36,8 +50,15 @@ export interface ModelProfile {
 }
 
 export interface TranslatorSettings {
+  responseFormat?: "html";
+  schemaVersion: number;
+  bidirectional: boolean;
+  pairLanguage: string;
+  smartOutput: boolean;
+  terms: TermEntry[];
   privacyConsentAccepted: boolean;
   uiLanguage: UiLanguage;
+  keyStorage: KeyStorageMode;
   modelProfiles: ModelProfile[];
   activeModelId: string;
   provider: ProviderType;
@@ -56,6 +77,8 @@ export interface TranslatorSettings {
   blockedSites: string[];
   allowedSites: string[];
   siteAccessMode: SiteAccessMode;
+  /** True once the built-in sensitive-site defaults were merged into blockedSites (plan §9.2). */
+  sensitiveDefaultsApplied: boolean;
   temperature: number;
   timeoutMs: number;
   maxOutputTokens: number;
@@ -66,8 +89,10 @@ export interface TranslatorSettings {
 }
 
 export const DEFAULT_SETTINGS: TranslatorSettings = {
+  schemaVersion: 2, bidirectional: false, pairLanguage: "日本語", smartOutput: false, terms: [],
   privacyConsentAccepted: false,
   uiLanguage: "zh-CN",
+  keyStorage: "local",
   modelProfiles: [{
     id: "default-model",
     enabled: true,
@@ -96,9 +121,10 @@ export const DEFAULT_SETTINGS: TranslatorSettings = {
   enableThinking: false,
   enableHistory: false,
   enableCache: true,
-  blockedSites: [],
+  blockedSites: [...DEFAULT_BLOCKED_SITES],
   allowedSites: [],
   siteAccessMode: "blacklist",
+  sensitiveDefaultsApplied: false,
   temperature: 0.2,
   timeoutMs: 60_000,
   maxOutputTokens: 2_048,
@@ -112,7 +138,7 @@ export const DEFAULT_SETTINGS: TranslatorSettings = {
 export type PublicTranslatorSettings = Pick<TranslatorSettings,
   "privacyConsentAccepted" | "uiLanguage" | "targetLanguage" | "triggerMode" | "enableThinking" |
   "blockedSites" | "allowedSites" | "siteAccessMode" | "minChars" | "maxChars"
-> & { model: string };
+> & { model: string; paused?: boolean; bidirectional?: boolean; pairLanguage?: string; services?: Array<{ id: string; name: string }> };
 
 export const DEFAULT_PUBLIC_SETTINGS: PublicTranslatorSettings = {
   privacyConsentAccepted: DEFAULT_SETTINGS.privacyConsentAccepted,
@@ -129,16 +155,17 @@ export const DEFAULT_PUBLIC_SETTINGS: PublicTranslatorSettings = {
 };
 
 export type ClientMessage =
-  | { type: "translate"; requestId: string; text: string; pageTitle?: string; pageUrl?: string }
+  | { type: "translate"; requestId: string; text: string; pageTitle?: string; pageUrl?: string; refresh?: boolean; serviceId?: string; target?: string; langHint?: string; format?: "text" | "html" }
+  | { type: "page-start"; requestId: string; text: string; target?: string; langHint?: string }
   | { type: "cancel"; requestId: string };
 
 export type ServerMessage =
-  | { type: "start"; requestId: string }
+  | { type: "start"; requestId: string; targetLanguage?: string; sourceLanguage?: string; uncertain?: boolean; enableThinking?: boolean; html?: boolean; serviceName?: string }
   | { type: "retry"; requestId: string; attempt: number }
   | { type: "reasoning"; requestId: string; text: string }
   | { type: "delta"; requestId: string; text: string }
   | { type: "finish"; requestId: string; cached?: boolean }
-  | { type: "error"; requestId: string; message: string };
+  | { type: "error"; requestId: string; message: string; fatal?: boolean };
 
 export interface TranslationHistoryEntry {
   id: string;
@@ -153,12 +180,14 @@ export interface TranslationHistoryEntry {
 }
 
 export interface TranslationCacheEntry {
+  lastAccessed?: number;
   key: string;
   translatedText: string;
   createdAt: number;
 }
 
 export interface ModelUsageEntry {
+  serviceCallCount?: number;
   modelProfileId: string;
   requestCount: number;
   inputCharacters: number;
