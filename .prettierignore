@@ -1,0 +1,3 @@
+# Generated, private and local files share the Git ignore rules.
+# npm scripts also pass --ignore-path .gitignore.
+package-lock.json

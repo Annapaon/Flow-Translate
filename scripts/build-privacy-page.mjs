@@ -1,7 +1,7 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 
 // Generate a standalone page from the policy; no runtime scripts or external assets.
-const source = await readFile(new URL('../docs/PRIVACY_POLICY.md', import.meta.url), 'utf8');
+const source = await readFile(new URL('../docs/publishing/PRIVACY_POLICY.md', import.meta.url), 'utf8');
 const email = (process.env.PRIVACY_CONTACT_EMAIL ?? '').trim();
 if (!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(email)) {
   throw new Error('请设置真实公开联系邮箱 PRIVACY_CONTACT_EMAIL 后重新生成隐私政策网页。');

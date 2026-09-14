@@ -3,9 +3,9 @@ import { createServer, type ServerResponse } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
-import { DEFAULT_SETTINGS, DEFAULT_PUBLIC_SETTINGS, type TriggerMode, type TranslatorSettings } from "../../shared/types";
+import { DEFAULT_SETTINGS, DEFAULT_PUBLIC_SETTINGS, type TriggerMode, type TranslatorSettings } from "../../src/shared/types";
 
-interface ModelRequest { source: string; aborted: boolean; response: ServerResponse }
+interface ModelRequest { model?: string; source: string; aborted: boolean; response: ServerResponse; batch?: string[] }
 interface Extension {
   page: Page;
   requests: ModelRequest[];
@@ -44,12 +44,17 @@ export const test = base.extend<{ extension: Extension }>({
       }
       let body = "";
       for await (const chunk of req) body += chunk;
-      const source = JSON.parse(body).messages[1].content as string;
-      const request = { source, aborted: false, response: res };
+      const messages = JSON.parse(body).messages;
+      const source = messages[1].content as string;
+      const batch = messages[0].content.includes("输入为 JSON 行")
+        ? source.split("<source_text>\n")[1]!.split("\n</source_text>")[0]!.split("\n").map(line => {
+            const row = JSON.parse(line); return JSON.stringify({ id: row.id, text: row.text + "译文完成" }) + "\n";
+          }) : undefined;
+      const request = { source, model: JSON.parse(body).model as string, aborted: false, response: res, batch };
       requests.push(request);
       res.on("close", () => { if (!res.writableEnded) request.aborted = true; });
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "译文" } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: batch?.[0] ?? "译文" } }] })}\n\n`);
     });
     await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
     const address = server.address();
@@ -89,14 +94,14 @@ export const test = base.extend<{ extension: Extension }>({
         requests.length = 0;
       };
       const settings = async (patch: Partial<TranslatorSettings>) => {
-        await worker.evaluate(async patch => { const api=(globalThis as any).chrome; const stored=await api.storage.local.get(["translatorSettings","publicTranslatorSettings"]); await api.storage.local.set({translatorSettings:{...stored.translatorSettings,...patch},publicTranslatorSettings:{...stored.publicTranslatorSettings,...Object.fromEntries(Object.entries(patch).filter(([key])=>["bidirectional","pairLanguage","targetLanguage","privacyConsentAccepted","triggerMode"].includes(key)))}}); },patch);
+        await worker.evaluate(async patch => { const api=(globalThis as any).chrome; const stored=await api.storage.local.get(["translatorSettings","publicTranslatorSettings"]); await api.storage.local.set({translatorSettings:{...stored.translatorSettings,...patch},publicTranslatorSettings:{...stored.publicTranslatorSettings,...Object.fromEntries(Object.entries(patch).filter(([key])=>["blockedSites","allowedSites","siteAccessMode","pageTranslationEnabled","pageTranslationMode","bidirectional","pairSourceLanguage","pairLanguage","targetLanguage","privacyConsentAccepted","triggerMode"].includes(key)))}}); },patch);
       };
       const control = async (action: string, target?: string) => worker.evaluate(async ({action,target,url}) => { const api=(globalThis as any).chrome; const tabs=await api.tabs.query({}); const tab=tabs.find((t:any)=>t.url?.startsWith(url)); return api.tabs.sendMessage(tab.id,{type:"page-control",action,target}); },{action,target,url:origin});
       const pageStatus = async () => worker.evaluate(async url => { const api=(globalThis as any).chrome;const tabs=await api.tabs.query({});return api.tabs.sendMessage(tabs.find((t:any)=>t.url?.startsWith(url)).id,{type:"page-status"}); },origin);
       const machine = async (provider: "microsoft" | "baidu" | "google" | "deepl" = "microsoft") => { await settings({provider,apiBaseUrl:`${origin}/machine/${provider}`,modelProfiles:[{...DEFAULT_SETTINGS.modelProfiles[0]!,provider,apiBaseUrl:`${origin}/machine/${provider}`,apiKey:"e2e-key",appId:"app-id",region:"global",model:""}]}); };
       const options = async () => { const p=await context!.newPage();await p.goto(`chrome-extension://${new URL(worker.url()).host}/options.html`);return p; };
       await use({ page, requests, configure, settings, control, pageStatus, machine, options, finish: (index) => {
-        requests[index]!.response.end(`data: ${JSON.stringify({ choices: [{ delta: { content: "完成" } }] })}\n\ndata: [DONE]\n\n`);
+        requests[index]!.response.end(`data: ${JSON.stringify({ choices: [{ delta: { content: requests[index]!.batch?.slice(1).join("") ?? "完成" } }] })}\n\ndata: [DONE]\n\n`);
       } });
     } finally {
       await context?.close();

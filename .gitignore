@@ -1,8 +1,63 @@
+# Dependencies and package-manager caches
 node_modules/
+.npm/
+.pnpm-store/
+
+# WXT / build output (including generated privacy-policy pages)
 .wxt/
 .output/
+/dist/
+/build/
+*.tsbuildinfo
+
+# Extension packages and signing credentials
 *.zip
+*.crx
 *.pem
-.DS_Store
-playwright-report/
+*.key
+*.p12
+*.pfx
+
+# Local environment and credentials; sanitized templates may be committed
+.env
+.env.*
+!.env.example
+!.env.*.example
+/secrets/
+/credentials/
+
+# Real extension settings exports may contain API keys and custom headers.
+# Put sanitized import fixtures under tests/fixtures/ using another filename.
+translator-settings*.json
+
+# Tests, coverage, browser state and tool caches
+coverage/
+.nyc_output/
 test-results/
+playwright-report/
+playwright/.cache/
+playwright/.auth/
+/blob-report/
+.cache/
+.eslintcache
+.prettiercache
+
+# Local logs and temporary files
+*.log
+/logs/
+/tmp/
+/temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Personal editor and operating-system files
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini

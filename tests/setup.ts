@@ -21,8 +21,8 @@ beforeEach(async () => {
   // Clear extension storage/listeners, the memoized migration, and the
   // IndexedDB database so every test starts from a clean slate.
   fakeBrowser.reset();
-  const { closeDbForTests } = await import("../shared/db");
-  const { __resetMigrationForTests } = await import("../shared/history");
+  const { closeDbForTests } = await import("../src/shared/db");
+  const { __resetMigrationForTests } = await import("../src/shared/history");
   __resetMigrationForTests();
   await closeDbForTests();
   await deleteDatabase();

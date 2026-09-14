@@ -1,6 +1,8 @@
 import { defineConfig } from "wxt";
 
 export default defineConfig({
+  srcDir: "src",
+  publicDir: "src/public",
   modules: ["@wxt-dev/module-react"],
   manifest: {
     name: "流译助手",
@@ -8,9 +10,13 @@ export default defineConfig({
     permissions: ["activeTab", "storage", "contextMenus", "sidePanel"],
     host_permissions: ["http://localhost/*", "http://127.0.0.1/*", "http://[::1]/*"],
     // https endpoints and LAN http endpoints are granted per-origin at
-    // runtime when the user saves or tests a model profile.
+    // runtime when the user saves, tests, or imports model profiles.
     optional_host_permissions: ["https://*/*", "http://*/*"],
     commands: {
+      "translate-page": {
+        suggested_key: { default: "Alt+Q" },
+        description: "翻译当前网页全文"
+      },
       "translate-selection": {
         suggested_key: { default: "Alt+T" },
         description: "翻译当前选中的文本"
