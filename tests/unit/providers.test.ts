@@ -1,7 +1,7 @@
 // Dynamic tests for core/providers/* and shared/security.ts against a local
 // mock SSE server. Run with `npm test` (vitest).
 import { createServer, type Server } from "node:http";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { isRetryableTranslationError, streamTranslation } from "../../src/core/providers/index";
 import { redactSensitive, sanitizeHeaders, validateApiUrl } from "../../src/shared/security";
 import type { TranslatorSettings } from "../../src/shared/types";
@@ -299,8 +299,10 @@ describe("connection test metering", () => {
     const { testConnection } = await import("../../src/core/providers/index");
     serverBehavior = (_req, res) => sse(res, [{ choices: [{ delta: { content: "你好" } }] }]);
     let attempts = 0;
+    const permission = vi.spyOn(browser.permissions, "contains").mockResolvedValue(true);
     const response = await testConnection(makeSettings({ apiBaseUrl: base }), () => attempts++);
     expect(response.ok).toBe(true);
+    permission.mockRestore();
     expect(attempts).toBe(1);
   });
 });

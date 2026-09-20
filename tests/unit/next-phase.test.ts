@@ -105,7 +105,7 @@ describe("translation rules and migration", () => {
 });
 
 describe("official service contracts", () => {
-  for (const provider of ["baidu", "microsoft", "google", "deepl"] as const) {
+  for (const provider of ["baidu", "microsoft", "google"] as const) {
     it(`${provider} builds auth and validates translated output`, async () => {
       const profile = {
         ...DEFAULT_SETTINGS.modelProfiles[0]!,
@@ -156,8 +156,6 @@ describe("official service contracts", () => {
         }
         if (provider === "google")
           expect(headers["X-Goog-Api-Key"]).toBe("test-secret");
-        if (provider === "deepl")
-          expect(headers.Authorization).toBe("DeepL-Auth-Key test-secret");
       } finally {
         fetch.mockRestore();
       }
@@ -207,7 +205,7 @@ describe("official service contracts", () => {
   it("classifies quota/auth errors without exposing server text and respects Retry-After", async () => {
     const profile = {
       ...DEFAULT_SETTINGS.modelProfiles[0]!,
-      provider: "deepl" as const,
+      provider: "google" as const,
       apiKey: "private-key",
     };
     const s = {

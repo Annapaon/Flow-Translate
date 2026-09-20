@@ -14,6 +14,12 @@ export function settingsForFeature(settings: TranslatorSettings, feature: Transl
 
 /** Routing changes apply to the next job; an existing page keeps its snapshot. */
 export function pageSettingsFingerprint(settings: TranslatorSettings): string {
-  const { separateModels, featureModels, ...rest } = settings;
+  const { separateModels, featureModels, translationStyle, siteRules, ...rest } = settings;
   return JSON.stringify(rest);
+}
+
+/** A feature-page choice updates its binding, or the shared default in unified mode. */
+export function serviceSelectionPatch(settings: TranslatorSettings, feature: TranslationFeature, id: string): Partial<TranslatorSettings> {
+  if (id && !settings.modelProfiles.some(profile => profile.id === id && profile.enabled)) throw new Error("翻译服务不可用 / Service unavailable");
+  return settings.separateModels ? { featureModels: { ...settings.featureModels, [feature]: id } } : { activeModelId: id || settings.activeModelId };
 }

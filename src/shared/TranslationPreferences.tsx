@@ -1,19 +1,17 @@
 import React from "react";
 import type { TranslatorSettings, TermEntry } from "./types";
 import { LANGUAGE_NAMES } from "../core/translation/language";
-import { isMachine } from "../core/services/capabilities";
 import { Toggle } from "./LanguageDirection";
-export function TranslationPreferences({ settings: s, update }: {
+export function TranslationPreferences({ settings: s, update, showSmartOutput = true }: {
   settings: TranslatorSettings;
+  showSmartOutput?: boolean;
   update: (patch: Partial<TranslatorSettings>) => void;
 }) {
   const t = (zh: string, english: string) => s.uiLanguage === "en" ? english : zh;
-  const machine = isMachine(s.modelProfiles.find(p => p.id === s.activeModelId)?.provider ?? s.provider);
   const edit = (index: number, patch: Partial<TermEntry>) => update({ terms: s.terms.map((term, i) => i === index ? { ...term, ...patch } : term) });
   return <div className="translation-preferences">
-    <Toggle label={t("智能输出", "Smart output")} checked={s.smartOutput} disabled={machine} onChange={smartOutput => update({ smartOutput })} />
-    <p className="ft-help">{t("根据文本自动选择单词释义、短语解释或句子翻译。", "Automatically chooses word meanings, phrase explanations or sentence translation.")}</p>
-    {machine && <p className="standalone-notice">{t("此服务仅支持纯翻译。智能输出、提示词、思考过程和术语设置将在切换到大模型时生效。", "This service supports translation only. Smart output, prompts, reasoning and terms apply when you switch to an LLM.")}</p>}
+    {showSmartOutput && <><Toggle label={t("智能输出", "Smart output")} checked={s.smartOutput} onChange={smartOutput => update({ smartOutput })} />
+    <p className="ft-help">{t("根据文本自动选择单词释义、短语解释或句子翻译。", "Automatically chooses word meanings, phrase explanations or sentence translation.")}</p></>}
     <details className="ft-terms">
       <summary>{t("自定义术语", "Custom terms")} · {s.terms.length}/100</summary>
       {s.terms.map((term, i) => <div className="ft-term" key={i}>

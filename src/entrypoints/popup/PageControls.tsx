@@ -1,96 +1,46 @@
+import { pageStateLabel } from "../../shared/page-state";
+import { FeatureServiceSelect } from "../../shared/FeatureServiceSelect";
+import { forWebsite, websiteRuleFor } from "../../shared/reading-settings";
 import { PageTranslationPreferences } from "../../shared/PageTranslationPreferences";
 import type { TranslatorSettings } from "../../shared/types";
-import React, { useEffect, useState } from "react";
-import type { PageStatus } from "../../content/page-translation/controller";
+import React from "react";
+import { usePageSession } from "./usePageSession";
 function ControlIcon({ kind }: { kind: "translate" | "pause" | "disable" }) {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {kind === "translate" ? <><path d="M3 5h12M9 3v2M6 5c0 5 4 9 8 11M12 5c0 5-4 9-9 12M14 21l4-10 4 10M16 17h4" /></> : kind === "pause" ? <><path d="M8 5v14M16 5v14" /></> : <><circle cx="12" cy="12" r="9" /><path d="m6 6 12 12" /></>}
   </svg>;
 }
-export function PageControls({ settings, update }: {
+export function PageControls({ settings, update, saving, onServiceChange }: {
   settings: TranslatorSettings;
+  saving: boolean;
+  onServiceChange: (id: string) => void;
   update: (patch: Partial<TranslatorSettings>) => void;
 }) {
   const en = settings.uiLanguage === "en";
-  const [tab, setTab] = useState<number>();
-  const [status, setStatus] = useState<PageStatus>();
-  const [error, setError] = useState("");
-  const [site, setSite] = useState<{
-    host?: string;
-    paused?: boolean;
-    permanent?: boolean;
-  }>({});
-  const t = (zh: string, english: string) => (en ? english : zh);
-  useEffect(() => {
-    let alive = true;
-    void browser.tabs
-      .query({ active: true, currentWindow: true })
-      .then(([tab]) => {
-        if (alive) setTab(tab?.id);
-      });
-    void browser.runtime.sendMessage({ type: "site-state" }).then((v) => {
-      if (alive) setSite(v ?? {});
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
-  useEffect(() => {
-    if (!tab || !settings.pageTranslationEnabled) return;
-    const poll = () =>
-      browser.tabs
-        .sendMessage(tab, { type: "page-status" })
-        .then((v) => setStatus(v))
-        .catch(() =>
-          setError(
-            t(
-              "此页面暂不支持，请刷新普通网页后重试",
-              "Page unavailable. Refresh a regular webpage and retry.",
-            ),
-          ),
-        );
-    void poll();
-    const timer = setInterval(poll, 700);
-    return () => clearInterval(timer);
-  }, [tab, en, settings.pageTranslationEnabled]);
+  const { tab, pageUrl, status, site, error, setError, command: sendCommand, pause } = usePageSession(en, settings.pageTranslationEnabled);
+  const effective = forWebsite(settings, pageUrl);
+  const rule = websiteRuleFor(settings.siteRules, pageUrl);
+  const t = (zh: string, english: string) => en ? english : zh;
   async function command(action: string) {
-    if (!tab) return;
-    try {
-      setError("");
-      setStatus(
-        await browser.tabs.sendMessage(tab, {
-          type: "page-control",
-          action,
-        }),
-      );
-    } catch {
-      setError(
-        t(
-          "页面连接失败，请刷新页面",
-          "Page connection failed. Refresh the page.",
-        ),
-      );
-    }
-  }
-  async function pause(mode: string) {
-    const next = await browser.runtime.sendMessage({
-      type: "site-pause",
-      mode,
-    });
-    setSite(next ?? {});
-    if (next?.error) setError(next.error);
+    try { await sendCommand(action); } catch (error) { setError(error instanceof Error ? error.message : t("操作失败，请重试。", "Action failed. Please retry.")); }
   }
   return (
     <section className="page-controls">
-      <PageTranslationPreferences settings={settings} update={update}
-        translateDisabled={tab === undefined || !settings.privacyConsentAccepted || site.paused || site.permanent || status?.state === "starting" || status?.state === "running"}
+      <PageTranslationPreferences showShortcutSettings={false} settings={effective} update={update} modeLocked={Boolean(rule && rule.mode !== "inherit")}
+        translateDisabled={saving || tab === undefined || !settings.privacyConsentAccepted || site.paused || site.permanent || status?.state === "starting" || status?.state === "running"}
         onTranslate={async () => {
-          if (tab === undefined) throw new Error(t("没有可翻译的页面", "No page available"));
-          const result = await browser.tabs.sendMessage(tab, { type: "page-control", action: "start" });
-          if (!result || result.state === "idle") throw new Error(t("此页面不可翻译，请确认网站规则并刷新页面。", "This page cannot be translated. Check site rules and refresh."));
+          await sendCommand("start");
           window.close();
         }} />
+      {settings.pageTranslationEnabled && <>
+        <FeatureServiceSelect settings={settings} feature="page" label={t("全文翻译服务", "Page translation service")} disabled={saving} onChange={onServiceChange} />
+        <p className="ft-help">{settings.separateModels ? t("切换仅修改全文和指定区域翻译的服务。", "Switching changes only page and region translation services.") : t("所有翻译功能共用此默认服务。", "All translation features share this default service.")}{status && !["idle", "skipped-target"].includes(status.state) && t("当前任务保留原服务；恢复原文后重新翻译将使用新服务。", "The current task keeps its original service. Restore originals and start again to use the new service.")}</p>
+      </>}
       {settings.pageTranslationEnabled && <div className="page-actions">
+        <button disabled={saving || !tab || !settings.privacyConsentAccepted || site.paused || site.permanent || (status && !["idle", "skipped-target"].includes(status.state))} onClick={async () => {
+          try { await sendCommand("region"); window.close(); }
+          catch (error) { setError(error instanceof Error ? error.message : t("选择区域失败，请重试。", "Region selection failed. Please retry.")); }
+        }}>{t("翻译指定区域", "Translate a region")}</button>
         {status?.state === "running" && (
           <button onClick={() => command("pause")}>{t("暂停", "Pause")}</button>
         )}
@@ -112,6 +62,7 @@ export function PageControls({ settings, update }: {
       </div>}
       {settings.pageTranslationEnabled && status && status.state !== "idle" && (
         <p role="status">
+          <strong>{pageStateLabel(status.state, en)}</strong><br />
           {t("完成", "Done")} {status.done} / {status.total} ·{" "}
           {t("失败", "Failed")} {status.failed} · {t("跳过", "Skipped")}{" "}
           {status.skipped}

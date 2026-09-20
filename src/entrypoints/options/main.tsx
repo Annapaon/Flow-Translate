@@ -1,13 +1,16 @@
+import { ModelCards } from "./components/ModelCards";
+import { PromptSettings } from "./components/PromptSettings";
+import { ShortcutStatus } from "./components/ShortcutStatus";
+import { TranslationSettings } from "./components/TranslationSettings";
+import { usePrivacyNotice, confirmPrivacyConsent, resetPrivacyNotices } from "../../shared/privacy-notices";
 import { requestApiPermissions } from "../../shared/api-permissions";
-import { PageTranslationPreferences } from "../../shared/PageTranslationPreferences";
-import { LanguageDirection, Toggle } from "../../shared/LanguageDirection";
+import { Toggle } from "../../shared/LanguageDirection";
 import { pausedSites, disabledSites } from "../../shared/site-access";
-import { TranslationPreferences } from "../../shared/TranslationPreferences";
 import { isMachine } from "../../core/services/capabilities";
 import React, { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { createRoot } from "react-dom/client";
-import { createModelProfile, getSettings, saveSettings } from "../../shared/settings";
-import { DEFAULT_SCENE_PROMPTS, DEFAULT_SETTINGS, TRANSLATION_SCENES, type KeyStorageMode, type ModelProfile, type ModelUsageEntry, type ProviderType, type TestConnectionResponse, type TranslationHistoryEntry, type TranslationScene, type TranslatorSettings } from "../../shared/types";
+import { createModelProfile, getSettings, saveSettings, saveSettingsChanges } from "../../shared/settings";
+import { DEFAULT_SCENE_PROMPTS, DEFAULT_SETTINGS, type KeyStorageMode, type ModelProfile, type ModelUsageEntry, type ProviderType, type TestConnectionResponse, type TranslationHistoryEntry, type TranslationScene, type TranslatorSettings } from "../../shared/types";
 import { providerRequiresApiKey, sanitizeHeaders, validateApiUrl, validateImportedSettings } from "../../shared/security";
 import { findProviderPreset, PROVIDER_PRESETS, providerDisplayName } from "../../core/providers/registry";
 import "./style.css";
@@ -27,8 +30,24 @@ function textToHeaders(value: string): Record<string, string> {
 const ensureApiPermission = (apiBaseUrl: string) => requestApiPermissions([apiBaseUrl]);
 
 function App() {
+  const privacyNotice = usePrivacyNotice("options");
+  const [confirmingPrivacy, setConfirmingPrivacy] = useState(false);
+  async function confirmPrivacy() {
+    setConfirmingPrivacy(true);
+    try {
+      await saveQueueRef.current;
+      // Patch only the consent flag; leave any in-progress edits in the form
+      // untouched so they are not reverted to stored values.
+      await confirmPrivacyConsent("options");
+      setForm(prev => ({ ...prev, privacyConsentAccepted: true }));
+    } catch {
+      announce(t("确认未保存，请重试。", "Confirmation was not saved. Please retry."), "error");
+    } finally { setConfirmingPrivacy(false); }
+  }
+
   const [form, setForm] = useState<TranslatorSettings>(DEFAULT_SETTINGS);
   const [pendingImport, setPendingImport] = useState<{ settings: TranslatorSettings; name: string } | null>(null);
+  const [includeWebsiteRules, setIncludeWebsiteRules] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importConsent, setImportConsent] = useState(false);
   const importRevision = useRef(0);
@@ -36,7 +55,7 @@ function App() {
   const [notice, setNotice] = useState("");
   const [noticeKind, setNoticeKind] = useState<"info" | "success" | "error">("info");
   const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
-  const [profileTestMessages, setProfileTestMessages] = useState<Record<string, { text: string; kind: "success" | "error" }>>({});
+  const [profileTestMessages, setProfileTestMessages] = useState<Record<string, { text: string; kind: "success" | "error"; code?: string }>>({});
   const profileTestTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [activeSection, setActiveSection] = useState<"basic" | "translation" | "prompts" | "models" | "history" | "data">("basic");
   const [editingProfile, setEditingProfile] = useState<ModelProfile | null>(null);
@@ -131,7 +150,10 @@ function App() {
 
   function exportConfiguration(includeSecrets = false) {
     if (includeSecrets && !window.confirm(t("导出文件将包含全部 API Key，确定继续吗？", "The export will contain every API key. Continue?"))) return;
-    const exported = includeSecrets ? form : { ...form, privacyConsentAccepted: false, apiKey: "", customHeaders: {}, modelProfiles: form.modelProfiles.map((profile) => ({ ...profile, apiKey: "", customHeaders: {} })) };
+    const exported = includeSecrets ? { ...form } : { ...form, privacyConsentAccepted: false, apiKey: "", customHeaders: {}, modelProfiles: form.modelProfiles.map((profile) => ({ ...profile, apiKey: "", customHeaders: {} })) };
+    // A secrets export is a full backup: website rules always ship with it.
+    // Only the safe export honors the include-website-rules toggle.
+    if (!includeSecrets && !includeWebsiteRules) delete (exported as Partial<TranslatorSettings>).siteRules;
     const blob = new Blob([JSON.stringify(exported, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -198,8 +220,9 @@ function App() {
   }
 
   function autoSave(settings: TranslatorSettings, message: string) {
+    const before = form;
     saveQueueRef.current = saveQueueRef.current
-      .then(() => saveSettings(settings))
+      .then(() => saveSettingsChanges(before, settings))
       .then(() => announce(message))
       .catch(error => announce(error instanceof Error ? error.message : t("保存失败", "Save failed"), "error"));
   }
@@ -284,7 +307,7 @@ function App() {
       modelProfiles: profiles
     };
     await saveQueueRef.current;
-    await saveSettings(next);
+    await saveSettingsChanges(form, next);
     setForm(await getSettings());
     setEditingProfile(null);
     announce(t("模型配置已保存并立即生效。", "Model configuration saved and activated."), "success");
@@ -299,7 +322,7 @@ function App() {
     const profiles = form.modelProfiles.map((profile) => profile.id === id ? { ...profile, enabled: !profile.enabled } : profile);
     const activeStillEnabled = profiles.some((profile) => profile.id === form.activeModelId && profile.enabled);
     await saveQueueRef.current;
-    await saveSettings({ ...form, modelProfiles: profiles, activeModelId: activeStillEnabled ? form.activeModelId : profiles.find((profile) => profile.enabled)!.id });
+    await saveSettingsChanges(form, { ...form, modelProfiles: profiles, activeModelId: activeStillEnabled ? form.activeModelId : profiles.find((profile) => profile.enabled)!.id });
     setForm(await getSettings());
     announce(t("模型启用状态已保存。", "Model status saved."), "success");
   }
@@ -308,7 +331,7 @@ function App() {
     const profiles = form.modelProfiles.filter((profile) => profile.id !== id);
     const activeModelId = form.activeModelId === id ? (profiles.find((profile) => profile.enabled)?.id ?? profiles[0]!.id) : form.activeModelId;
     await saveQueueRef.current;
-    await saveSettings({ ...form, modelProfiles: profiles, activeModelId });
+    await saveSettingsChanges(form, { ...form, modelProfiles: profiles, activeModelId });
     setForm(await getSettings());
     setEditingProfile(null);
     announce(t("模型配置已删除并保存。", "Model profile deleted."), "success");
@@ -333,22 +356,25 @@ function App() {
     setTestingIds(ids => new Set(ids).add(profile.id));
     clearTimeout(profileTestTimers.current.get(profile.id));
     setProfileTestMessages(messages => { const next = { ...messages }; delete next[profile.id]; return next; });
-    const report = (text: string, kind: "success" | "error") => {
+    const report = (text: string, kind: "success" | "error", code?: string) => {
       if (currentRevision !== sectionRevision.current) return;
-      setProfileTestMessages(messages => ({ ...messages, [profile.id]: { text, kind } }));
+      setProfileTestMessages(messages => ({ ...messages, [profile.id]: { text, kind, code } }));
       profileTestTimers.current.set(profile.id, setTimeout(() => {
         setProfileTestMessages(messages => { const next = { ...messages }; delete next[profile.id]; return next; });
         profileTestTimers.current.delete(profile.id);
       }, 4_000));
     };
     try {
+      if ((!isMachine(profile.provider) && !profile.model.trim()) || (providerRequiresApiKey(profile.provider) && !profile.apiKey.trim()) || (profile.provider === "baidu" && !profile.appId?.trim())) {
+        report(t("配置不完整，请检查模型名、密钥及服务必填参数。", "Configuration is incomplete. Check the model, key and required parameters."), "error", "configuration"); return;
+      }
       const endpoint = validateApiUrl(profile.apiBaseUrl, en);
       if (!await ensureApiPermission(endpoint)) {
         report(t("未授予该模型地址的访问权限，无法测试。", "Access to this model endpoint was not granted; the test was skipped."), "error");
         return;
       }
       const response = await browser.runtime.sendMessage({ type: "test-connection", settings: connectionTestSettings({ ...profile, apiBaseUrl: endpoint }) }) as TestConnectionResponse;
-      report(response.message, response.ok ? "success" : "error");
+      report(response.message, response.ok ? "success" : "error", response.code);
     } catch (error) {
       report(error instanceof Error ? error.message : t("测试失败。", "The test failed."), "error");
     } finally {
@@ -398,6 +424,7 @@ function App() {
     await browser.runtime.sendMessage({ type: "clear-local-data" });
     await Promise.all([pausedSites.setValue([]), disabledSites.setValue([])]);
     await saveSettings(DEFAULT_SETTINGS);
+    await resetPrivacyNotices();
     setForm(await getSettings());
     setHistory([]);
     setModelUsage([]);
@@ -417,7 +444,7 @@ function App() {
       <aside className="settings-nav" aria-label={t("设置菜单", "Settings menu")}>
         <button className={activeSection === "basic" ? "selected" : ""} onClick={() => selectSection("basic")}><span>01</span><div><strong>{t("基本信息", "General")}</strong><small>{t("界面、隐私与网站范围", "Interface, privacy, and sites")}</small></div></button>
         <button className={activeSection === "translation" ? "selected" : ""} onClick={() => selectSection("translation")}><span>02</span><div><strong>{t("翻译配置", "Translation")}</strong><small>{t("语言与翻译行为", "Languages and behavior")}</small></div></button>
-        <button disabled={isMachine(form.modelProfiles.find(p=>p.id===form.activeModelId)?.provider ?? form.provider)} className={activeSection === "prompts" ? "selected" : ""} onClick={() => selectSection("prompts")}><span>03</span><div><strong>{t("提示词设置", "Prompts")}</strong><small>{t("按场景配置提示词", "Prompts by scene")}</small></div></button>
+        <button className={activeSection === "prompts" ? "selected" : ""} onClick={() => selectSection("prompts")}><span>03</span><div><strong>{t("提示词设置", "Prompts")}</strong><small>{t("按场景配置提示词", "Prompts by scene")}</small></div></button>
         <button className={activeSection === "models" ? "selected" : ""} onClick={() => selectSection("models")}><span>04</span><div><strong>{t("模型服务", "Models")}</strong><small>{t("API 与模型管理", "API and model management")}</small></div></button>
         <button className={activeSection === "history" ? "selected" : ""} onClick={() => selectSection("history")}><span>05</span><div><strong>{t("翻译历史", "History")}</strong><small>{t("搜索与收藏记录", "Search and favorites")}</small></div></button>
         <button className={activeSection === "data" ? "selected" : ""} onClick={() => selectSection("data")}><span>06</span><div><strong>{t("配置管理", "Data")}</strong><small>{t("导入与导出设置", "Import and export")}</small></div></button>
@@ -428,7 +455,8 @@ function App() {
         <div className="grid">
           <label>{t("界面语言", "Interface language")}<select value={form.uiLanguage} onChange={(event) => update("uiLanguage", event.target.value as TranslatorSettings["uiLanguage"])}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>
         </div>
-        <div className="privacy-disclosure"><strong>{t("数据处理说明", "Data handling notice")}</strong><p>{t("你选择、输入或通过全文翻译提交的文字会发送到当前服务；主动开启自动全文模式后，进入符合规则的页面时会发送正文；页面标题和地址仅在开启历史时保存在本地。开发者不接收这些数据。请勿翻译密码、支付、医疗等敏感信息。", "Selected or entered text is sent to your configured model service. Page titles and URLs are stored locally only when history is enabled. The developer does not receive this data. Do not translate passwords, payment, health, or other sensitive information.")}</p><label><input type="checkbox" checked={form.privacyConsentAccepted} onChange={(event) => update("privacyConsentAccepted", event.target.checked)} />{t("我了解并同意上述数据处理方式", "I understand and agree to this data handling")}</label></div>
+        <ShortcutStatus en={en} />
+        {privacyNotice.accepted === false && <div className="privacy-disclosure"><strong>{t("数据处理说明", "Data handling notice")}</strong><p>{t("你选择、输入或通过全文翻译提交的文字会发送到当前服务；主动开启自动全文模式后，进入符合规则的页面时会发送正文；页面标题和地址仅在开启历史时保存在本地。开发者不接收这些数据。请勿翻译密码、支付、医疗等敏感信息。", "Selected or entered text is sent to your configured model service. Page titles and URLs are stored locally only when history is enabled. The developer does not receive this data. Do not translate passwords, payment, health, or other sensitive information.")}</p><button type="button" disabled={confirmingPrivacy} onClick={confirmPrivacy}>{t("了解并同意", "Understand and agree")}</button></div>}
         <div className="toggle-grid">
           <label className="toggle"><input type="checkbox" checked={form.enableHistory} onChange={(event) => update("enableHistory", event.target.checked)} /><span><strong>{t("保存翻译历史", "Save translation history")}</strong><small>{t("最多保存最近 100 条", "Keep up to 100 recent entries")}</small></span></label>
           <label className="toggle"><input type="checkbox" checked={form.enableCache} onChange={(event) => update("enableCache", event.target.checked)} /><span><strong>{t("启用翻译缓存", "Enable translation cache")}</strong><small>{t("相同请求 7 天内复用", "Reuse identical requests for 7 days")}</small></span></label>
@@ -437,33 +465,12 @@ function App() {
         {form.siteAccessMode === "blacklist"
           ? <label>{t("禁用网站", "Blocked sites")}<textarea rows={3} value={form.blockedSites.join("\n")} onChange={(event) => update("blockedSites", event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))} placeholder={"bank.example.com\n*.private.example.com"} /><small>{t("每行一个域名，同时匹配其子域名。已内置常见银行、支付和密码管理器站点，可自行增删。", "One domain per line; subdomains are included. Common banking, payment, and password-manager sites are built in and can be adjusted freely.")}</small></label>
           : <label>{t("允许网站", "Allowed sites")}<textarea rows={3} value={form.allowedSites.join("\n")} onChange={(event) => update("allowedSites", event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))} placeholder={"docs.example.com\n*.company.example.com"} /><small>{t("白名单为空时所有网站均不启用。", "No site is enabled when this list is empty.")}</small></label>}
+        <p className="prompt-footnote">{t("提示词可随时编辑，用于大模型翻译；百度、谷歌和必应等机器翻译服务不会使用这些提示词。", "Prompts can be edited at any time and apply to LLM translation. Machine translation services such as Baidu, Google and Bing do not use them.")}</p>
       </section>}
 
-      {activeSection === "translation" && <section className="card">
-        <div className="section-head"><div><span className="step">02</span><h2>{t("翻译配置", "Translation settings")}</h2><p>{t("设置翻译语言、触发行为和输出方式。", "Configure languages, trigger behavior, and output.")}</p></div></div>
-        <LanguageDirection settings={form} update={patch => { const next = {...form,...patch}; setForm(next); autoSave(next,t("设置已保存", "Settings saved")); }} />
-        <div className="grid">
-          <label>{t("触发方式", "Trigger mode")}<select value={form.triggerMode} onChange={(event) => update("triggerMode", event.target.value as "click" | "auto")}><option value="click">{t("点击圆点翻译", "Click the dot")}</option><option value="auto">{t("选择后自动翻译", "Translate automatically")}</option></select></label>
-          <label>{t("思考过程", "Reasoning")}<select disabled={isMachine(form.modelProfiles.find(p=>p.id===form.activeModelId)?.provider ?? form.provider)} value={form.enableThinking ? "on" : "off"} onChange={(event) => update("enableThinking", event.target.value === "on")}><option value="off">{t("关闭（默认）", "Off (default)")}</option><option value="on">{t("开启并显示", "On and visible")}</option></select></label>
-          <label>{t("输出模式", "Output mode")}<select disabled={isMachine(form.modelProfiles.find(p=>p.id===form.activeModelId)?.provider ?? form.provider)} value={form.outputMode} onChange={(event) => update("outputMode", event.target.value as TranslatorSettings["outputMode"])}><option value="translation">{t("仅输出译文", "Translation only")}</option><option value="explanation">{t("译文与表达解释", "Translation and explanation")}</option><option value="vocabulary">{t("译文与重点词汇", "Translation and vocabulary")}</option><option value="grammar">{t("译文与语法说明", "Translation and grammar")}</option></select></label>
-          <label>{t("选区字符范围", "Selection length")}<div className="range"><input type="number" min="1" max="100" value={form.minChars} onChange={(event) => update("minChars", Number(event.target.value))} /><span>{t("至", "to")}</span><input type="number" min="100" max="20000" value={form.maxChars} onChange={(event) => update("maxChars", Number(event.target.value))} /></div></label>
-        </div>
-        <PageTranslationPreferences settings={form} update={patch => { const next = {...form,...patch}; setForm(next); autoSave(next,t("设置已保存", "Settings saved")); }} />
-        <TranslationPreferences settings={form} update={patch => { const next = {...form,...patch}; setForm(next); autoSave(next,t("设置已保存", "Settings saved")); }} />
-      </section>}
+      {activeSection === "translation" && <TranslationSettings form={form} update={update} patch={patch => { const next = { ...form, ...patch }; setForm(next); autoSave(next, t("设置已保存", "Settings saved")); }} />}
 
-      {activeSection === "prompts" && <section className="card">
-        <div className="section-head"><div><span className="step">03</span><h2>{t("提示词设置", "Prompt settings")}</h2><p>{t("分别配置不同翻译场景的提示词，使用时可在插件弹窗中快速切换。", "Configure prompts for each scene and switch them from the extension popup.")}</p></div><button type="button" className="reset-all" onClick={restoreAllScenePrompts}>{t("全部恢复默认", "Restore all defaults")}</button></div>
-        <p className="template-help">{t("支持变量：", "Available variables: ")}<code>{"{{sourceLanguage}}"}</code>、<code>{"{{targetLanguage}}"}</code>、<code>{"{{outputMode}}"}</code>、<code>{"{{scene}}"}</code></p>
-        <div className="prompt-list">
-          {TRANSLATION_SCENES.map((scene) => <div className="prompt-item" key={scene.id}>
-            <div className="prompt-title"><span><strong>{en ? ({ general: "General", technical: "Technical", academic: "Academic", business: "Business" }[scene.id]) : scene.name}</strong><small>{en ? ({ general: "Natural and accurate for everyday content", technical: "Preserves terminology, code, and identifiers", academic: "Rigorous and suitable for academic writing", business: "Professional and concise business language" }[scene.id]) : scene.description}</small></span><em>{form.scenePrompts[scene.id] === DEFAULT_SCENE_PROMPTS[scene.id] ? t("默认", "Default") : t("已自定义", "Customized")}</em></div>
-            <textarea rows={5} value={form.scenePrompts[scene.id]} onChange={(event) => updateScenePrompt(scene.id, event.target.value)} placeholder={t(`请输入${scene.name}场景提示词`, `Enter the ${scene.id} scene prompt`)} />
-            <div className="prompt-actions"><span>{form.scenePrompts[scene.id].length} {t("字符", "characters")}</span><button type="button" onClick={() => copyScenePrompt(scene.id)}>{t("复制", "Copy")}</button><button type="button" disabled={form.scenePrompts[scene.id] === DEFAULT_SCENE_PROMPTS[scene.id]} onClick={() => restoreScenePrompt(scene.id)}>{t("恢复默认", "Restore default")}</button></div>
-          </div>)}
-        </div>
-        <label>{t("基础系统提示词", "Base system prompt")}<textarea rows={4} value={form.systemPrompt} onChange={(event) => update("systemPrompt", event.target.value)} /><small>{t("所有场景都会使用，用于约束翻译任务和安全边界。", "Used for every scene to define the translation task and safety boundary.")}</small></label>
-      </section>}
+      {activeSection === "prompts" && <PromptSettings form={form} updateScenePrompt={updateScenePrompt} copyScenePrompt={copyScenePrompt} restoreScenePrompt={restoreScenePrompt} restoreAllScenePrompts={restoreAllScenePrompts} update={update} />}
 
       {activeSection === "models" && <section className="card">
         <div className="section-head model-head"><div><span className="step">04</span><h2>{t("翻译服务配置", "Translation services")}</h2><p>{t("添加多个云端或本地模型，并在工具栏快速切换。", "Add cloud or local models and switch them from the toolbar.")}</p></div><button type="button" className="add" onClick={addProfile}>＋ {t("添加服务", "Add service")}</button></div>
@@ -478,25 +485,7 @@ function App() {
             </select></label>)}
           </div>}
         </div>
-        <div className="models">{form.modelProfiles.map((profile) => (
-          <article className={`model ${form.activeModelId === profile.id ? "active" : ""} ${!profile.enabled ? "disabled" : ""}`} key={profile.id} onClick={() => editProfile(profile)}>
-            <div className="model-card-head"><span className={`status ${profile.enabled ? "on" : ""}`}>{profile.enabled ? t("已启用", "Enabled") : t("已停用", "Disabled")}</span>{form.activeModelId === profile.id && <span className="default-badge">{t("默认", "Default")}</span>}<label className="switch" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={profile.enabled} onChange={() => toggleProfile(profile.id)} /><span /></label></div>
-            <strong className="profile-name">{profile.name}</strong>
-            <div className="profile-model">{providerDisplayName(profile.provider, en)} · {profile.model || t("未配置模型", "Model not configured")}</div>
-            <div className="profile-url">{profile.apiBaseUrl}</div>
-            {(() => { const usage = modelUsage.find((entry) => entry.modelProfileId === profile.id); return <div className="usage-stats">
-              <span><strong>{formatCount(usage?.requestCount ?? 0)}</strong>{t("次完成", "completed")}</span>
-              <span><strong>{formatCount(usage?.serviceCallCount ?? 0)}</strong>{t("次 API 尝试", "API attempts")}</span>
-              <span><strong>{formatCount(usage?.inputCharacters ?? 0)}</strong>{t("输入字符", "input chars")}</span>
-              <span><strong>{formatCount(usage?.outputCharacters ?? 0)}</strong>{t("输出字符", "output chars")}</span>
-              <button type="button" disabled={!usage} onClick={(event) => { event.stopPropagation(); void resetModelUsage(profile.id); }}>{t("清零", "Reset")}</button>
-              <small>{usage ? `${t("最后使用：", "Last used: ")}${new Date(usage.lastUsedAt).toLocaleString(en ? "en" : "zh-CN")}` : t("暂无使用记录", "No usage recorded")}</small>
-            </div>; })()}
-            {Object.values(form.featureModels).includes(profile.id) && <p className="model-binding-note">{t("已绑定：", "Assigned to: ")}{([ ["selection", t("划词翻译", "Selection")], ["page", t("全文翻译", "Page")], ["longText", t("长文本翻译", "Long text")] ] as const).filter(([feature]) => form.featureModels[feature] === profile.id).map(([, label]) => label).join(" / ")}{t("；停用或删除后将跟随默认模型。", "; disabling or deleting returns these features to the default model.")}</p>}
-            <div className="card-actions"><div className="model-card-buttons"><button type="button" disabled={!profile.enabled || form.activeModelId === profile.id} onClick={event => { event.stopPropagation(); update("activeModelId", profile.id); }}>{form.activeModelId === profile.id ? t("当前默认", "Current default") : t("设为默认", "Set as default")}</button><button type="button" disabled={!profile.enabled || testingIds.has(profile.id)} onClick={(event) => { event.stopPropagation(); testProfile(profile); }}>{testingIds.has(profile.id) ? t("测试中…", "Testing…") : t("测试", "Test")}</button></div><span>{t("点击卡片编辑 →", "Click card to edit →")}</span></div>
-            {profileTestMessages[profile.id] && <div className={`model-test-message ${profileTestMessages[profile.id]!.kind}`} role={profileTestMessages[profile.id]!.kind === "error" ? "alert" : "status"} onClick={event => event.stopPropagation()}>{profileTestMessages[profile.id]!.text}</div>}
-          </article>
-        ))}</div>
+        <ModelCards form={form} modelUsage={modelUsage} formatCount={formatCount} resetModelUsage={resetModelUsage} profileTestMessages={profileTestMessages} testingIds={testingIds} update={update} testProfile={testProfile} editProfile={editProfile} toggleProfile={toggleProfile} />
         <label className="key-storage-setting">{t("API Key 保存方式", "API key storage mode")}
           <select value={form.keyStorage} onChange={(event) => update("keyStorage", event.target.value as KeyStorageMode)}>
             <option value="local">{t("本地保存（长期使用）", "Local storage (persistent)")}</option>
@@ -530,7 +519,7 @@ function App() {
       {activeSection === "data" && <section className="card">
         <div className="section-head"><div><span className="step">06</span><h2>{t("配置管理", "Configuration management")}</h2><p>{t("在浏览器或设备之间迁移翻译设置和模型服务。", "Move translation settings and model providers between browsers or devices.")}</p></div></div>
         <div className="data-actions">
-          <article><div><strong>{t("导出安全配置", "Export safe configuration")}</strong><p>{t("默认不导出 API Key 和自定义请求头。", "API keys and custom headers are excluded by default.")}</p></div><span className="export-buttons"><button type="button" onClick={() => exportConfiguration(false)}>{t("导出（不含密钥）", "Export without secrets")}</button><button type="button" onClick={() => exportConfiguration(true)}>{t("导出（包含密钥）", "Export with secrets")}</button></span></article>
+          <article><div><strong>{t("导出安全配置", "Export safe configuration")}</strong><p>{t("默认不导出 API Key 和自定义请求头；含密钥导出为完整备份，始终包含网站规则。", "API keys and custom headers are excluded by default; the with-secrets export is a full backup and always includes website rules.")}</p><Toggle label={t("导出包含网站规则", "Include website rules in export")} checked={includeWebsiteRules} onChange={setIncludeWebsiteRules} /></div><span className="export-buttons"><button type="button" onClick={() => exportConfiguration(false)}>{t("导出（不含密钥）", "Export without secrets")}</button><button type="button" onClick={() => exportConfiguration(true)}>{t("导出（包含密钥）", "Export with secrets")}</button></span></article>
           <article><div><strong>{t("导入完整配置", "Import full configuration")}</strong><p>{t("选择 JSON 文件后点击“导入并启用”，一次性申请已启用模型的接口权限并覆盖当前配置。", "Choose a JSON file, then Import and enable to grant endpoint access for enabled models and replace the current configuration.")}</p></div><label className="import-button">{t("选择文件", "Choose file")}<input type="file" accept="application/json,.json" disabled={importing} onChange={importConfiguration} /></label></article>
           {pendingImport && <div className="import-preview">
             <strong>{pendingImport.name}</strong>
@@ -555,7 +544,6 @@ function App() {
           {!isMachine(editingProfile.provider) && <label>{t("模型名称", "Model name")}<input value={editingProfile.model} onChange={(event) => setEditingProfile({ ...editingProfile, model: event.target.value })} placeholder={en ? findProviderPreset(editingProfile.provider).englishModelPlaceholder : findProviderPreset(editingProfile.provider).modelPlaceholder} /></label>}
           {editingProfile.provider === "baidu" && <label>App ID<input value={editingProfile.appId ?? ""} onChange={e=>setEditingProfile({...editingProfile,appId:e.target.value})}/></label>}
           {editingProfile.provider === "microsoft" && <label>Region<input value={editingProfile.region ?? ""} onChange={e=>setEditingProfile({...editingProfile,region:e.target.value})}/><small>{t("区域资源需要填写 Region；全局资源可留空。", "Region is required for regional resources; global resources can omit it.")}</small></label>}
-          {editingProfile.provider === "deepl" && <label>{t("DeepL API 套餐", "DeepL API plan")}<select value={editingProfile.apiBaseUrl.includes("api-free") ? "free" : "pro"} onChange={e=>setEditingProfile({...editingProfile,apiBaseUrl:e.target.value === "free" ? "https://api-free.deepl.com/v2/translate" : "https://api.deepl.com/v2/translate"})}><option value="free">Free</option><option value="pro">Pro</option></select><small>{t("也可在下方填写自己管理的兼容网关地址。", "You may also enter your own compatible gateway URL below.")}</small></label>}
           <label>API Base URL<input value={editingProfile.apiBaseUrl} onChange={(event) => setEditingProfile({ ...editingProfile, apiBaseUrl: event.target.value })} placeholder="https://api.openai.com/v1" /><small>{t("云端服务需使用 HTTPS；局域网内的模型服务可以使用 HTTP（如 http://192.168.1.50:11434/v1、http://nas.local:8000/v1）。保存或测试时，扩展会请求访问该 API 地址，仅用于发送模型翻译请求，不会读取该网站内容。", "Cloud services must use HTTPS; model services on your local network may use HTTP (e.g. http://192.168.1.50:11434/v1 or http://nas.local:8000/v1). When saving or testing, the extension requests access to this API endpoint only to send model translation requests; it does not read that website's content.")}</small></label>
           <label>API Key{!providerRequiresApiKey(editingProfile.provider) && t("（可选）", " (optional)")}<input type="password" autoComplete="new-password" value={editingProfile.apiKey} onChange={(event) => setEditingProfile({ ...editingProfile, apiKey: event.target.value })} placeholder={providerRequiresApiKey(editingProfile.provider) ? "API Key" : t("本地服务通常无需填写", "Usually not required for local services")} /></label>
           {editingProfile.provider === "anthropic" && <label>{t("鉴权方式", "Authentication")}<select value={editingProfile.authMode} onChange={(event) => setEditingProfile({ ...editingProfile, authMode: event.target.value as ModelProfile["authMode"] })}><option value="x-api-key">x-api-key（Anthropic 官方）</option><option value="bearer">Authorization Bearer（常见第三方）</option><option value="both">{t("同时发送（仅兼容需要时）", "Send both (compatibility only)")}</option></select></label>}

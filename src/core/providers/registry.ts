@@ -46,9 +46,8 @@ export interface ProviderPreset {
  */
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: "baidu", name: "百度翻译", englishName: "Baidu Translate", defaultUrl: "https://fanyi-api.baidu.com/api/trans/vip/translate", modelPlaceholder: "", englishModelPlaceholder: "" },
-  { id: "microsoft", name: "Microsoft / 必应翻译", englishName: "Microsoft Translate", defaultUrl: "https://api.cognitive.microsofttranslator.com/translate", modelPlaceholder: "", englishModelPlaceholder: "" },
+  { id: "microsoft", name: "必应翻译", englishName: "Bing Translate", defaultUrl: "https://api.cognitive.microsofttranslator.com/translate", modelPlaceholder: "", englishModelPlaceholder: "" },
   { id: "google", name: "Google 翻译", englishName: "Google Translate", defaultUrl: "https://translation.googleapis.com/language/translate/v2", modelPlaceholder: "", englishModelPlaceholder: "" },
-  { id: "deepl", name: "DeepL 翻译", englishName: "Deepl Translate", defaultUrl: "https://api-free.deepl.com/v2/translate", modelPlaceholder: "", englishModelPlaceholder: "" },
   { id: "openai-compatible", name: "OpenAI（兼容接口）", englishName: "OpenAI (compatible API)", defaultUrl: "https://api.openai.com/v1", modelPlaceholder: "gpt-4.1-mini", englishModelPlaceholder: "gpt-4.1-mini" },
   { id: "anthropic", name: "Anthropic（兼容接口）", englishName: "Anthropic (compatible API)", defaultUrl: "https://api.anthropic.com/v1", modelPlaceholder: "claude-sonnet-4-5、ark-code-latest 或服务商模型名", englishModelPlaceholder: "claude-sonnet-4-5, ark-code-latest, or your provider's model id" },
   { id: "gemini", name: "Gemini（Google 原生）", englishName: "Gemini (Google native)", defaultUrl: "https://generativelanguage.googleapis.com/v1beta", modelPlaceholder: "gemini-2.5-flash", englishModelPlaceholder: "gemini-2.5-flash" },

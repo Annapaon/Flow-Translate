@@ -3,6 +3,7 @@ import SparkMD5 from "spark-md5";
 import { parseFragment } from "parse5";
 import { languageCode } from "../translation/language";
 import { validateApiUrl } from "../../shared/security";
+import { baiduDiagnosticCode } from "../providers/diagnostics";
 import type { TranslatorSettings, ProviderType } from "../../shared/types";
 export { isMachine, supportsHtml } from "./capabilities";
 export class ServiceError extends Error {
@@ -12,6 +13,7 @@ export class ServiceError extends Error {
     public fatal = false,
     public retryAfter = 0,
     public status = 0,
+    public code = "",
   ) {
     super(message);
   }
@@ -37,9 +39,8 @@ function code(provider: ProviderType, language: string) {
       es: "spa",
     },
     microsoft: { "zh-CN": "zh-Hans", "zh-TW": "zh-Hant" },
-    deepl: { "zh-CN": "ZH-HANS", "zh-TW": "ZH-HANT" },
   };
-  return maps[provider]?.[c] ?? (provider === "deepl" ? c.toUpperCase() : c);
+  return maps[provider]?.[c] ?? c;
 }
 export async function machineTranslate(
   texts: string[],
@@ -102,16 +103,6 @@ export async function machineTranslate(
       ...(!auto ? { source } : {}),
       format: html ? "html" : "text",
     });
-  } else if (provider === "deepl") {
-    headers.Authorization = `DeepL-Auth-Key ${profile.apiKey}`;
-    body = JSON.stringify({
-      text: texts,
-      target_lang: target,
-      ...(!auto
-        ? { source_lang: source.startsWith("ZH") ? "ZH" : source }
-        : {}),
-      ...(html ? { tag_handling: "html" } : {}),
-    });
   } else throw new ServiceError("Unsupported translation service", false, true);
   signal.throwIfAborted();
   networkAttempt(signal);
@@ -164,16 +155,21 @@ export async function machineTranslate(
   } catch {
     throw new ServiceError("翻译响应格式错误 / Invalid response");
   }
-  if (data.error_code)
+  if (data.error_code) {
+    const rawCode = String(data.error_code).replace(/[^0-9]/g, "").slice(0, 10);
+    // Retry classification mirrors the shared diagnostic table: rate limits,
+    // timeouts and transient server errors are worth retrying.
+    const kind = baiduDiagnosticCode(rawCode);
+    const retryable = kind === "rate_limit" || kind === "timeout" || kind === "server";
     throw new ServiceError(
-      `百度错误 / Baidu error ${String(data.error_code)
-        .replace(/[^0-9]/g, "")
-        .slice(0, 10)}`,
-      ["54003", "52001"].includes(String(data.error_code)),
-      !["54003", "52001"].includes(String(data.error_code)),
+      `百度错误 / Baidu error ${rawCode}`,
+      retryable,
+      !retryable,
       0,
-      String(data.error_code) === "54003" ? 429 : 0,
+      kind === "rate_limit" ? 429 : 0,
+      rawCode,
     );
+  }
   let results: unknown;
   if (provider === "baidu")
     results = Array.isArray(data.trans_result)
@@ -187,8 +183,6 @@ export async function machineTranslate(
     results = data.data?.translations?.map((x: any) =>
       html ? x.translatedText : plainFromHtml(x.translatedText),
     );
-  if (provider === "deepl")
-    results = data.translations?.map((x: any) => x.text);
   if (
     !Array.isArray(results) ||
     results.length !== texts.length ||

@@ -10,7 +10,7 @@ export type KeyStorageMode = "local" | "session";
 export type OutputMode = "translation" | "explanation" | "vocabulary" | "grammar";
 export type TranslationScene = "general" | "technical" | "academic" | "business";
 export type SiteAccessMode = "blacklist" | "whitelist";
-export type ProviderType = "openai-compatible" | "anthropic" | "gemini" | "ollama" | "lm-studio" | "xinference" | "vllm" | "sglang" | "baidu" | "microsoft" | "google" | "deepl";
+export type ProviderType = "openai-compatible" | "anthropic" | "gemini" | "ollama" | "lm-studio" | "xinference" | "vllm" | "sglang" | "baidu" | "microsoft" | "google";
 export type UiLanguage = "zh-CN" | "en";
 export type ScenePrompts = Record<TranslationScene, string>;
 
@@ -52,7 +52,11 @@ export interface ModelProfile {
 
 export type TranslationFeature = "selection" | "page" | "longText";
 
+export interface TranslationStyle { scale: number; spacing: number; tone: "purple" | "blue" | "neutral"; background: boolean }
+export interface SiteRule { id: string; host: string; subdomains: boolean; mode: "inherit" | "manual" | "auto"; language: { kind: "inherit" } | { kind: "fixed"; source: string; target: string } | { kind: "pair"; first: string; second: string } }
 export interface TranslatorSettings {
+  translationStyle: TranslationStyle;
+  siteRules: SiteRule[];
   separateModels: boolean;
   featureModels: Record<TranslationFeature, string>;
   responseFormat?: "html" | "batch";
@@ -97,6 +101,8 @@ export interface TranslatorSettings {
 }
 
 export const DEFAULT_SETTINGS: TranslatorSettings = {
+  translationStyle: { scale: 1, spacing: 0.5, tone: "purple", background: true },
+  siteRules: [],
   separateModels: false,
   featureModels: { selection: "", page: "", longText: "" },
   pageTranslationEnabled: true, pageTranslationMode: "manual",
@@ -150,7 +156,7 @@ export const DEFAULT_SETTINGS: TranslatorSettings = {
 export type PublicTranslatorSettings = Pick<TranslatorSettings,
   "pageTranslationEnabled" | "pageTranslationMode" | "privacyConsentAccepted" | "uiLanguage" | "targetLanguage" | "triggerMode" | "enableThinking" |
   "blockedSites" | "allowedSites" | "siteAccessMode" | "minChars" | "maxChars"
-> & { model: string; paused?: boolean; bidirectional?: boolean; pairSourceLanguage?: string; pairLanguage?: string; services?: Array<{ id: string; name: string }> };
+> & { translationStyle?: TranslationStyle; siteRules?: SiteRule[]; model: string; paused?: boolean; bidirectional?: boolean; pairSourceLanguage?: string; pairLanguage?: string; services?: Array<{ id: string; name: string }> };
 
 export const DEFAULT_PUBLIC_SETTINGS: PublicTranslatorSettings = {
   pageTranslationEnabled: DEFAULT_SETTINGS.pageTranslationEnabled,
@@ -212,4 +218,6 @@ export interface ModelUsageEntry {
 export interface TestConnectionResponse {
   ok: boolean;
   message: string;
+  code?: string;
+  retryAfter?: number;
 }

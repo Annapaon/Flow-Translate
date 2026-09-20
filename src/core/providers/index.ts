@@ -1,3 +1,4 @@
+import { diagnose, diagnostic } from "./diagnostics";
 import { modelLane, schedule } from "../translation/scheduler";
 import { registerMeter } from "../translation/meter";
 import { isMachine, machineTranslate } from "../services/machine";
@@ -96,7 +97,20 @@ export async function streamTranslation(
  * failure messages uniformly.
  */
 export async function testConnection(settings: TranslatorSettings, onAttempt?: () => void): Promise<TestConnectionResponse> {
+  const english = settings.uiLanguage === "en";
   try {
+    if ((providerRequiresApiKey(settings.provider) && !settings.apiKey.trim()) ||
+        (!isMachine(settings.provider) && !settings.model.trim()) ||
+        (settings.provider === "baidu" && !settings.modelProfiles.find(p => p.id === settings.activeModelId)?.appId?.trim())) return diagnostic("configuration", english);
+    let origin: string;
+    try {
+      const url = new URL(validateApiUrl(settings.apiBaseUrl));
+      // Match the port-stripped patterns used to request the grant (Chrome
+      // match patterns do not carry ports, so a port-bearing pattern would
+      // always report "not granted" for LAN endpoints on custom ports).
+      origin = `${url.protocol}//${url.hostname}`;
+    } catch { return diagnostic("configuration", english); }
+    if (!(await browser.permissions.contains({ origins: [`${origin}/*`] }))) return diagnostic("permission", english);
     const profile = settings.modelProfiles.find(p => p.id === settings.activeModelId)!;
     const lane = await modelLane(new URL(validateApiUrl(settings.apiBaseUrl)).origin, profile);
     return await schedule(lane, false, AbortSignal.timeout(15_000), async () => {
@@ -113,9 +127,6 @@ export async function testConnection(settings: TranslatorSettings, onAttempt?: (
     return await getProvider(settings.provider).testConnection(config, onAttempt);
     }, settings.provider === "baidu", profile.maxConcurrency ?? 2);
   } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : (settings.uiLanguage === "en" ? "Connection failed" : "连接失败")
-    };
+    return diagnose(error, english);
   }
 }

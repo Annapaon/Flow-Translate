@@ -1,10 +1,13 @@
+import { mergeSettingsChanges } from "./settings-changes";
+import { translationStyleSchema, siteRuleSchema, DEFAULT_TRANSLATION_STYLE } from "./reading-settings";
+import { isMachine } from "./provider-list";
 import { LANGUAGE_NAMES, languageCode } from "../core/translation/language";
 import { storage } from "wxt/utils/storage";
 import { DEFAULT_BLOCKED_SITES } from "./constants";
 import { clearSessionKeys, getSessionKeys, mergeSessionKeys, saveSessionKeys, splitSessionKeys } from "./credentials";
 import { DEFAULT_PUBLIC_SETTINGS, DEFAULT_SCENE_PROMPTS, DEFAULT_SETTINGS, type ModelProfile, type PublicTranslatorSettings, type TranslatorSettings } from "./types";
 
-const settingsItem = storage.defineItem<TranslatorSettings>("local:translatorSettings", {
+export const settingsItem = storage.defineItem<TranslatorSettings>("local:translatorSettings", {
   defaultValue: DEFAULT_SETTINGS
 });
 
@@ -22,22 +25,23 @@ const publicSettingsItem = storage.defineItem<PublicTranslatorSettings>("local:p
 
 function toPublicSettings(settings: TranslatorSettings): PublicTranslatorSettings {
   const { privacyConsentAccepted, uiLanguage, targetLanguage, triggerMode, blockedSites, allowedSites, siteAccessMode, minChars, maxChars, model } = settings;
-  return { pageTranslationEnabled: settings.pageTranslationEnabled, pageTranslationMode: settings.pageTranslationMode, bidirectional: settings.bidirectional, pairSourceLanguage: settings.pairSourceLanguage, pairLanguage: settings.pairLanguage, enableThinking: !["baidu","microsoft","google","deepl"].includes(settings.provider) && settings.enableThinking, services: settings.modelProfiles.filter(p => p.enabled).map(p => ({ id: p.id, name: p.name })), privacyConsentAccepted, uiLanguage, targetLanguage, triggerMode, blockedSites, allowedSites, siteAccessMode, minChars, maxChars, model };
+  return { translationStyle: settings.translationStyle, siteRules: settings.siteRules, pageTranslationEnabled: settings.pageTranslationEnabled, pageTranslationMode: settings.pageTranslationMode, bidirectional: settings.bidirectional, pairSourceLanguage: settings.pairSourceLanguage, pairLanguage: settings.pairLanguage, enableThinking: !isMachine(settings.provider) && settings.enableThinking, services: settings.modelProfiles.filter(p => p.enabled).map(p => ({ id: p.id, name: p.name })), privacyConsentAccepted, uiLanguage, targetLanguage, triggerMode, blockedSites, allowedSites, siteAccessMode, minChars, maxChars, model };
 }
 
-export async function getSettings(): Promise<TranslatorSettings> {
+async function readSettings(): Promise<TranslatorSettings> {
   const stored = await settingsItem.getValue();
   const merged = { ...DEFAULT_SETTINGS, ...stored };
   if (!("modelProfiles" in stored)) merged.modelProfiles = [];
   const normalized = normalizeSettings(merged);
   // In session mode the persisted blob carries empty keys; fill them from
   // chrome.storage.session (trusted contexts only, wiped on browser close).
-  return normalized.keyStorage === "session"
+  const result = normalized.keyStorage === "session"
     ? mergeSessionKeys(normalized, await getSessionKeys())
     : normalized;
+  return result;
 }
 
-export async function saveSettings(settings: TranslatorSettings): Promise<void> {
+async function persistSettings(settings: TranslatorSettings): Promise<void> {
   const normalized = normalizeSettings(settings);
   const publicSettings = toPublicSettings(normalized);
   if (normalized.keyStorage === "session") {
@@ -58,6 +62,41 @@ export async function saveSettings(settings: TranslatorSettings): Promise<void> 
   ]);
 }
 
+// Web Locks serialize writes across options, popup, sidepanel and the worker.
+// The queue fallback is for unit-test environments without Web Locks.
+let fallbackQueue: Promise<unknown> = Promise.resolve();
+async function withSettingsLock<T>(operation: () => Promise<T>): Promise<T> {
+  if (globalThis.navigator?.locks) return await navigator.locks.request("flow-translator-settings", operation);
+  const result = fallbackQueue.then(operation, operation);
+  fallbackQueue = result.catch(() => {});
+  return result;
+}
+export async function getSettings(): Promise<TranslatorSettings> {
+  const stored = await settingsItem.getValue();
+  // One-time DeepL retirement: normalizeSettings strips deepl profiles, so this
+  // rewrite happens once and every later read takes the plain path below.
+  if (String(stored.provider) === "deepl" || stored.modelProfiles?.some(profile => String(profile?.provider) === "deepl")) {
+    return mutateSettings(current => current);
+  }
+  return readSettings();
+}
+export async function saveSettings(settings: TranslatorSettings): Promise<void> {
+  await withSettingsLock(() => persistSettings(settings));
+}
+export async function mutateSettings(change: (current: TranslatorSettings) => TranslatorSettings): Promise<TranslatorSettings> {
+  return withSettingsLock(async () => {
+    const next = change(await readSettings());
+    await persistSettings(next);
+    return readSettings();
+  });
+}
+export function patchSettings(patch: Partial<TranslatorSettings>): Promise<TranslatorSettings> {
+  return mutateSettings(current => ({ ...current, ...patch }));
+}
+export function saveSettingsChanges(before: TranslatorSettings, after: TranslatorSettings): Promise<TranslatorSettings> {
+  return mutateSettings(current => mergeSettingsChanges(current, before, after));
+}
+
 export async function getPublicSettings(): Promise<PublicTranslatorSettings> {
   return toPublicSettings(await getSettings());
 }
@@ -67,16 +106,20 @@ export function watchPublicSettings(callback: (value: PublicTranslatorSettings) 
 }
 
 export function watchSettings(callback: (value: TranslatorSettings) => void): () => void {
-  return settingsItem.watch((value) => {
-    const merged = { ...DEFAULT_SETTINGS, ...value };
-    if (!("modelProfiles" in value)) merged.modelProfiles = [];
-    callback(normalizeSettings(merged));
-  });
+  let generation = 0;
+  const notify = () => {
+    const revision = ++generation;
+    void readSettings().then(value => { if (revision === generation) callback(value); }).catch(() => {});
+  };
+  const unwatch = settingsItem.watch(notify);
+  const sessionChanged = (_changes: unknown, area: string) => { if (area === "session") notify(); };
+  browser.storage.onChanged.addListener(sessionChanged);
+  return () => { generation++; unwatch(); browser.storage.onChanged.removeListener(sessionChanged); };
 }
 
 export function createModelProfile(seed?: Partial<ModelProfile>): ModelProfile {
   return {
-    kind: seed?.kind ?? (["baidu", "microsoft", "google", "deepl"].includes(seed?.provider ?? "") ? "machine" : "llm"),
+    kind: seed?.kind ?? (isMachine(seed?.provider ?? "openai-compatible") ? "machine" : "llm"),
     appId: seed?.appId ?? "", region: seed?.region ?? "",
     id: seed?.id ?? crypto.randomUUID(),
     enabled: seed?.enabled ?? true,
@@ -98,7 +141,11 @@ export function createModelProfile(seed?: Partial<ModelProfile>): ModelProfile {
 }
 
 function normalizeSettings(settings: TranslatorSettings): TranslatorSettings {
-  let profiles = settings.modelProfiles?.filter(Boolean) ?? [];
+  // Retired services must never fall through to an LLM with their old URL/key.
+  let profiles = settings.modelProfiles?.filter(profile => profile && String(profile.provider) !== "deepl") ?? [];
+  if (profiles.length === 0 && String(settings.provider) === "deepl") {
+    profiles = [createModelProfile({ ...DEFAULT_SETTINGS.modelProfiles[0]!, id: crypto.randomUUID() })];
+  }
   if (profiles.length === 0) {
     profiles = [createModelProfile({
       id: "migrated-model",
@@ -115,7 +162,8 @@ function normalizeSettings(settings: TranslatorSettings): TranslatorSettings {
   }
   profiles = profiles.map((profile) => ({
     ...profile,
-    kind: (["baidu", "microsoft", "google", "deepl"].includes(profile.provider) ? "machine" : "llm") as ModelProfile["kind"],
+    kind: (isMachine(profile.provider) ? "machine" : "llm") as ModelProfile["kind"],
+    name: profile.provider === "microsoft" && profile.name === "Microsoft / 必应翻译" ? "必应翻译" : profile.name,
     enabled: profile.enabled ?? true,
     provider: profile.provider ?? "openai-compatible",
     temperature: clampNumber(profile.temperature, 0, 2, DEFAULT_SETTINGS.temperature),
@@ -152,6 +200,18 @@ function normalizeSettings(settings: TranslatorSettings): TranslatorSettings {
   if (pairSourceLanguage === pairLanguage) pairLanguage = pairSourceLanguage === "日本語" ? "简体中文" : "日本語";
   return {
     ...settings,
+    translationStyle: translationStyleSchema.safeParse(settings.translationStyle).data ?? DEFAULT_TRANSLATION_STYLE,
+    // Keep individually valid rules instead of dropping the whole array when
+    // one entry goes bad (e.g. a language renamed after an update).
+    siteRules: (() => {
+      const valid = (settings.siteRules ?? []).filter(rule => siteRuleSchema.safeParse(rule).success);
+      const seenHost = new Set<string>(), seenId = new Set<string>();
+      return valid.filter(rule => {
+        if (seenHost.has(rule.host) || seenId.has(rule.id)) return false;
+        seenHost.add(rule.host); seenId.add(rule.id);
+        return true;
+      }).slice(0, 100);
+    })(),
     schemaVersion: 2,
     separateModels: settings.separateModels === true,
     featureModels: Object.fromEntries((["selection", "page", "longText"] as const).map(feature => {

@@ -59,7 +59,7 @@ test("pause cancels streams and resume translates only unfinished blocks", async
   await e.page.evaluate(() => history.pushState({}, "", "/route"));
   await expect(e.page.locator("[data-flow-translation]")).toHaveCount(0);
 });
-for (const provider of ["baidu", "google", "deepl"] as const)
+for (const provider of ["baidu", "google"] as const)
   test(`${provider} works through the real extension background`, async ({
     extension: e,
   }) => {
@@ -197,6 +197,7 @@ test("language pair controls replace fixed direction and persist across popup an
   await options.getByRole("combobox", { name: "First language", exact: true }).selectOption("English");
   await expect(options.getByRole("combobox", { name: "Second language", exact: true }).locator('option', { hasText: /^English$/ })).toHaveJSProperty("disabled", true);
   await expect(options.getByRole("combobox", { name: "Source language", exact: true })).toHaveCount(0);
+  await options.locator(".llm-preferences > summary").click();
   await options.getByText("Custom terms ·", { exact: false }).click();
   await options.getByRole("button", { name: /Add term/ }).click();
   await options.screenshot({ path: testInfo.outputPath("translation-settings.png"), fullPage: true });
@@ -486,9 +487,13 @@ test("malformed batch output clears provisional translations and falls back with
   e.finish(3); e.finish(4);
   await expect.poll(async () => (await e.pageStatus()).state).toBe("completed");
   await expect(e.page.locator("[data-flow-translation]")).toHaveCount(4);
-  const translations = await e.page.locator("[data-flow-translation]").allTextContents();
-  // Shadow text is asserted through Playwright's shadow-piercing locator.
-  await expect(e.page.locator("#first [data-flow-translation]")).toHaveText("译文完成");
-  await expect(e.page.locator("#second [data-flow-translation]")).toHaveText("译文完成");
-  expect(translations.join("")).not.toContain("WRONG PARAGRAPH");
+  // Assert translation text independently of the new local action controls.
+  const translatedText = (selector: string) => e.page.locator(selector).evaluate(host => {
+    const copy = document.createElement("div");
+    host.shadowRoot!.childNodes.forEach(node => copy.append(node.cloneNode(true)));
+    copy.querySelectorAll("style").forEach(node => node.remove());
+    return copy.textContent;
+  });
+  await expect.poll(() => translatedText("#first [data-flow-translation]")).toBe("译文完成");
+  await expect.poll(() => translatedText("#second [data-flow-translation]")).toBe("译文完成");
 });

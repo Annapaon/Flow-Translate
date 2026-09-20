@@ -1,3 +1,4 @@
+import { forWebsite } from "../shared/reading-settings";
 import { installPageTranslation } from "../content/page-translation/controller";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -204,7 +205,7 @@ function App() {
 
   useEffect(() => {
     const settingsPort = browser.runtime.connect({ name: "public-settings" });
-    settingsPort.onMessage.addListener((value: PublicTranslatorSettings) => { setSettings(value); setSitePaused(Boolean(value.paused)); });
+    settingsPort.onMessage.addListener((value: PublicTranslatorSettings) => { setSettings(forWebsite(value, location.href)); setSitePaused(Boolean(value.paused)); });
     return () => settingsPort.disconnect();
   }, []);
 
@@ -229,7 +230,7 @@ function App() {
 
   function translate(snapshot: SelectionSnapshot, refresh = false, target?: string) {
     if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
-    if (sitePaused) return;
+    if (sitePaused || document.documentElement.hasAttribute("data-flow-selecting")) return;
     cancelCurrent();
     setActualTarget("");
     setSelection(snapshot);
@@ -276,8 +277,7 @@ function App() {
         if (portRef.current === port) portRef.current = null;
       } else if (message.type === "error") {
         settled = true;
-        setStatus("error");
-        setError(message.message);
+        setStatus("error"); setError(message.message);
         if (requestIdRef.current === requestId) requestIdRef.current = null;
         port.disconnect();
         if (portRef.current === port) portRef.current = null;
@@ -348,6 +348,7 @@ function App() {
   useEffect(() => {
     let pointerSelecting = false;
     const update = (event: Event) => {
+      if (document.documentElement.hasAttribute("data-flow-selecting")) return;
       if (event.composedPath().some((node) => node instanceof HTMLElement && node.id === "flow-translate-root")) return;
       if (interactingWithCardRef.current || document.activeElement?.id === "flow-translate-root") return;
       if (event.type === "pointerup") pointerSelecting = false;
@@ -448,7 +449,7 @@ function App() {
 
   useEffect(() => {
     const listener = (message: { type?: string; text?: string }) => {
-      if (sitePaused || !settings.privacyConsentAccepted || isCurrentSiteBlocked(settings)) return;
+      if (document.documentElement.hasAttribute("data-flow-selecting") || sitePaused || !settings.privacyConsentAccepted || isCurrentSiteBlocked(settings)) return;
       if (message.type === "external-translate" && message.text) {
         const snapshot = readSelection() ?? { text: message.text, x: window.innerWidth / 2, y: 80 };
         translate({ ...snapshot, text: message.text.slice(0, settings.maxChars) });
@@ -485,6 +486,11 @@ function App() {
     return () => browser.runtime.onMessage.removeListener(listener);
   }, []);
 
+  useEffect(() => {
+    const hide = () => { if (autoTimerRef.current) clearTimeout(autoTimerRef.current); cancelCurrent(); setOpen(false); setSelection(null); };
+    document.addEventListener("flow-region-select", hide);
+    return () => document.removeEventListener("flow-region-select", hide);
+  }, []);
   const en = settings.uiLanguage === "en";
   const t = (zh: string, english: string) => en ? english : zh;
   if (!selection) return null;

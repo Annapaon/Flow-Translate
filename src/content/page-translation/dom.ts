@@ -1,7 +1,10 @@
+import { DEFAULT_TRANSLATION_STYLE } from "../../shared/reading-settings";
+import type { TranslationStyle } from "../../shared/types";
 import { parseFragment } from "parse5";
 export const HOST = "data-flow-translation";
 const excluded =
   "script,style,noscript,iframe,svg,canvas,math,pre,input,textarea,select,button,nav,header[role=banner],[role=navigation],[role=button],[contenteditable]:not([contenteditable=false]),[translate=no],.notranslate,[hidden],[aria-hidden=true],#flow-translate-root,[data-flow-translation]";
+export const isExcluded = (element: HTMLElement) => Boolean(element.closest(excluded));
 const blockTags = new Set([
   "P",
   "DIV",
@@ -103,16 +106,25 @@ export function collectGroups(root: HTMLElement): Group[] {
 export async function collectGroupsAsync(
   root: HTMLElement,
   valid: () => boolean,
+  limits?: { steps: number; groups: number },
 ): Promise<Group[]> {
   const groups: Group[] = [];
   let count = 0;
   for (const group of groupSteps(root)) {
     if (!valid()) return [];
     if (group) groups.push(group);
-    if (++count % 100 === 0)
+    if (limits && (++count >= limits.steps || groups.length >= limits.groups)) break;
+    if (count % 100 === 0)
       await new Promise((resolve) => setTimeout(resolve, 0));
   }
   return groups;
+}
+/** Evenly spaced subset in document order, so detection sees the whole page
+ *  rather than only its first blocks (cookie banners, headers, nav chrome). */
+export function spreadSample<T>(items: T[], count: number): T[] {
+  if (items.length <= count) return items;
+  const step = (items.length - 1) / (count - 1);
+  return Array.from({ length: count }, (_, i) => items[Math.round(i * step)]!);
 }
 export function serialize(group: Group): Serialized {
   const inline = new Map<string, Inline>();
@@ -161,7 +173,7 @@ const typography = [
   "text-transform",
   "word-spacing",
 ];
-export function restyle(host: HTMLElement, owner: HTMLElement) {
+export function restyle(host: HTMLElement, owner: HTMLElement, preferences: TranslationStyle = DEFAULT_TRANSLATION_STYLE) {
   const source = getComputedStyle(owner);
   for (const property of typography)
     host.style.setProperty(property, source.getPropertyValue(property));
@@ -171,12 +183,16 @@ export function restyle(host: HTMLElement, owner: HTMLElement) {
   host.style.setProperty("max-height", "none", "important");
   host.style.setProperty("white-space", "pre-wrap", "important");
   host.style.setProperty("overflow-wrap", "anywhere", "important");
-  host.style.setProperty("margin-block", "0.5em 0.65em", "important");
+  host.style.setProperty("font-size", `${parseFloat(source.fontSize) * preferences.scale}px`, "important");
+  if (Number.isFinite(parseFloat(source.lineHeight))) host.style.setProperty("line-height", `${parseFloat(source.lineHeight) * preferences.scale}px`, "important");
+  host.style.setProperty("margin-block", `${preferences.spacing}em ${preferences.spacing * 1.3}em`, "important");
   host.style.setProperty("padding", "0.55em 0.8em", "important");
   host.style.setProperty("border-radius", "9px", "important");
   const dark = typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches;
-  host.style.setProperty("background-color", dark ? "rgba(167,139,250,0.10)" : "rgba(109,92,231,0.06)", "important");
-  host.style.setProperty("border", dark ? "1px solid rgba(167,139,250,0.16)" : "1px solid rgba(109,92,231,0.10)", "important");
+  const colors = { purple: dark ? "167,139,250" : "109,92,231", blue: dark ? "147,197,253" : "66,133,244", neutral: dark ? "203,213,225" : "100,116,139" };
+  const color = colors[preferences.tone];
+  host.style.setProperty("background-color", preferences.background ? `rgba(${color},${dark ? 0.1 : 0.06})` : "transparent", "important");
+  host.style.setProperty("border", preferences.background ? `1px solid rgba(${color},${dark ? 0.16 : 0.1})` : "1px solid transparent", "important");
 }
 export function render(
   group: Group,

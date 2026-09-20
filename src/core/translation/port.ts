@@ -1,3 +1,4 @@
+import { forWebsite } from "../../shared/reading-settings";
 import { settingsForFeature, pageSettingsFingerprint } from "./model-routing";
 import { PageBatcher } from "./page-batch";
 import { registerMeter } from "./meter";
@@ -70,7 +71,7 @@ export function attachTranslationPort(port: Port) {
         false,
         true,
       );
-    return current;
+    return forWebsite(current, feature === "longText" ? undefined : port.sender?.url);
   }
   port.onMessage.addListener(async (raw: unknown) => {
     if (disconnected) return;
@@ -243,8 +244,10 @@ export function attachTranslationPort(port: Port) {
       }
       const endpoint = new URL(validateApiUrl(settings.apiBaseUrl));
       if (
+        // Port-stripped pattern, matching how the grant is requested (Chrome
+        // match patterns do not carry ports).
         !(await browser.permissions.contains({
-          origins: [`${endpoint.origin}/*`],
+          origins: [`${endpoint.protocol}//${endpoint.hostname}/*`],
         }))
       )
         throw new ServiceError(

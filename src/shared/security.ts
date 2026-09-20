@@ -1,7 +1,9 @@
+import { translationStyleSchema, siteRulesSchema } from "./reading-settings";
+import { isMachine } from "./provider-list";
 import { z } from "zod";
 import type { ProviderType, TranslatorSettings } from "./types";
 
-const providerSchema = z.enum(["openai-compatible", "anthropic", "gemini", "ollama", "lm-studio", "xinference", "vllm", "sglang", "baidu", "microsoft", "google", "deepl"]);
+const providerSchema = z.enum(["openai-compatible", "anthropic", "gemini", "ollama", "lm-studio", "xinference", "vllm", "sglang", "baidu", "microsoft", "google"]);
 const headerName = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const ipv4Pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
@@ -102,6 +104,8 @@ const scenePromptsSchema = z.object({
 }).strict();
 
 const importSchema = z.object({
+  translationStyle: translationStyleSchema.optional(),
+  siteRules: siteRulesSchema.optional(),
   separateModels: z.boolean().optional(),
   featureModels: z.object({ selection: z.string().max(100).optional(), page: z.string().max(100).optional(), longText: z.string().max(100).optional() }).strict().optional(),
   pageTranslationEnabled: z.boolean().optional(),
@@ -123,9 +127,21 @@ const importSchema = z.object({
 }).strip();
 
 export function validateImportedSettings(value: unknown, english = false): Partial<TranslatorSettings> {
+  // Retired services: strip their profiles so the rest of a previously
+  // exported configuration still imports; only reject when nothing remains.
+  if (value && typeof value === "object" && Array.isArray((value as { modelProfiles?: unknown }).modelProfiles)) {
+    const profiles = (value as { modelProfiles: unknown[] }).modelProfiles
+      .filter(profile => !(profile && typeof profile === "object" && (profile as { provider?: unknown }).provider === "deepl"));
+    if (profiles.length === 0) {
+      throw new Error(english
+        ? "This file only contains DeepL profiles, and DeepL is no longer supported."
+        : "配置文件只包含 DeepL 服务，而 DeepL 已不再支持。");
+    }
+    (value as { modelProfiles: unknown[] }).modelProfiles = profiles;
+  }
   const parsed = importSchema.parse(value);
   for (const profile of parsed.modelProfiles) {
-    if (!["baidu", "microsoft", "google", "deepl"].includes(profile.provider) && !profile.model.trim()) throw new Error("模型名称不能为空 / Model is required");
+    if (!isMachine(profile.provider) && !profile.model.trim()) throw new Error("模型名称不能为空 / Model is required");
     if (profile.provider === "baidu" && !profile.appId?.trim()) throw new Error("百度 App ID 不能为空 / Baidu App ID is required");
     profile.apiBaseUrl = validateApiUrl(profile.apiBaseUrl, english);
     profile.customHeaders = sanitizeHeaders(profile.customHeaders, english);
@@ -143,5 +159,5 @@ export function redactSensitive(value: string, secrets: string[] = []): string {
 }
 
 export function providerRequiresApiKey(provider: ProviderType): boolean {
-  return ["baidu", "microsoft", "google", "deepl"].includes(provider) || provider === "openai-compatible" || provider === "anthropic" || provider === "gemini";
+  return isMachine(provider) || provider === "openai-compatible" || provider === "anthropic" || provider === "gemini";
 }

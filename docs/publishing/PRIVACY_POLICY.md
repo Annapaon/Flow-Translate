@@ -8,12 +8,13 @@ Chrome 扩展产品 ID / Chrome extension ID: `amjogmonhgjbbndglcedgbgglcpncbjc`
 
 ### 1. 产品用途
 
-流译助手用于将用户主动选择、输入或通过快捷键启动或主动开启自动全文翻译后的可读网页文字发送到用户自行配置的翻译服务，并展示译文。服务包括大模型及百度、Microsoft Translator、Google Cloud Translation、DeepL 官方 API。
+流译助手用于将用户主动选择、输入或通过快捷键启动或主动开启自动全文翻译后的可读网页文字发送到用户自行配置的翻译服务，并展示译文。服务包括大模型及百度、Microsoft Translator、Google Cloud Translation 官方 API。
 
 ### 2. 处理的数据
 
 - 待翻译文本：仅在用户点击翻译、使用快捷键/右键菜单，或主动开启自动翻译后处理。开启自动全文翻译后，进入符合网站规则的页面或页面内新路由时会自动处理可读正文。全文翻译发送可读正文及最小行内格式，不发送整页 HTML、Cookie、隐藏内容或表单编辑值。
-- 网站暂停/禁用规则和定向术语：仅保存在当前浏览器。命中的术语可能随大模型翻译请求发送。
+- 网站暂停/禁用规则、网站语言与全文模式规则、译文样式和定向术语：仅保存在当前浏览器。网站规则默认不导出，用户可主动选择包含。命中的术语可能随大模型翻译请求发送。
+- 指定区域翻译仅发送用户确认区域内的可读正文；语言预判在本地完成。连接诊断使用最小测试文本，显示脱敏错误分类。
 - 页面标题和 URL：仅在用户开启“保存翻译历史”时保存在当前浏览器本地。
 - API Key/Secret、App ID、Region、服务地址和自定义请求头：用于连接所选服务。API Key/Secret 可选择本地或会话保存；会话保存关闭浏览器后清除，内容脚本不能读取凭据。
 - 翻译历史、缓存和按模型使用量：仅保存在当前浏览器本地。历史默认关闭；缓存保存期限为 7 天。
@@ -50,11 +51,13 @@ Chrome 扩展产品 ID / Chrome extension ID: `amjogmonhgjbbndglcedgbgglcpncbjc`
 
 ### 1. Purpose
 
-Flow Translate sends selected or entered text, or readable page text after the user starts page translation with a shortcut or explicitly enables automatic page translation, to the configured translation service and displays translations. Services include LLMs and official Baidu, Microsoft Translator, Google Cloud Translation and DeepL APIs.
+Flow Translate sends selected or entered text, or readable page text after the user starts page translation with a shortcut or explicitly enables automatic page translation, to the configured translation service and displays translations. Services include LLMs and official Baidu, Microsoft Translator, and Google Cloud Translation APIs.
 
 ### 2. Data processed
 
 - Text to translate is processed only after a user action, or after the user explicitly enables automatic translation. Automatic page translation processes readable content when entering eligible pages or navigating within them, subject to site rules.
+- Website language/mode rules, pause rules, appearance and terminology are stored locally. Website rules are excluded from exports unless explicitly selected. Matching terms may be included in LLM requests.
+- Region translation sends readable text only within the user-confirmed region. Language preflight runs locally. Connection diagnostics use minimal test text and display sanitized error categories.
 - Page title and URL are stored locally only when translation history is enabled.
 - API keys/Secrets, App IDs, Regions, endpoints, and custom headers connect to the selected service. Keys/Secrets use local or session storage according to user settings; session keys are cleared when the browser closes. Content scripts cannot access credentials.
 - History, cache, and per-model usage counters remain local. History is off by default; cache entries expire after seven days.

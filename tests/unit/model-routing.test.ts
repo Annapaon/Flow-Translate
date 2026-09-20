@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../../src/shared/types";
 import { getSettings, saveSettings } from "../../src/shared/settings";
+import { selectFeatureService } from "../../src/shared/service-selection";
 import { validateImportedSettings } from "../../src/shared/security";
 import { settingsForFeature, pageSettingsFingerprint } from "../../src/core/translation/model-routing";
 
@@ -50,5 +51,32 @@ describe("feature model assignments", () => {
     expect(() => validateImportedSettings({ ...settings, featureModels: { page: 42 } })).toThrow();
     expect(settingsForFeature(settings, "selection", profile.id).activeModelId).toBe(profile.id);
     expect(() => settingsForFeature(settings, "selection", "missing")).toThrow();
+  });
+  it("round-trips every feature switch through storage into routing (popup/sidepanel flow)", async () => {
+    await saveSettings(settings);
+    for (const feature of ["selection", "page", "longText"] as const) {
+      // Separate mode: the switch must land on the feature binding and route.
+      await selectFeatureService(feature, profile.id);
+      let stored = await getSettings();
+      expect(stored.featureModels[feature]).toBe(profile.id);
+      expect(settingsForFeature(stored, feature).activeModelId).toBe(profile.id);
+      // "Follow default" clears the binding and falls back to the default.
+      await selectFeatureService(feature, "");
+      stored = await getSettings();
+      expect(stored.featureModels[feature]).toBe("");
+      expect(settingsForFeature(stored, feature).activeModelId).toBe(stored.activeModelId);
+    }
+    // Unified mode: the switch moves the shared default and every feature follows.
+    await saveSettings({ ...settings, separateModels: false });
+    await selectFeatureService("selection", profile.id);
+    const unified = await getSettings();
+    expect(unified.activeModelId).toBe(profile.id);
+    expect(unified.separateModels).toBe(false);
+    for (const feature of ["selection", "page", "longText"] as const) {
+      expect(settingsForFeature(unified, feature).activeModelId).toBe(profile.id);
+    }
+    // A disabled target must be rejected, not silently kept.
+    await saveSettings({ ...settings, modelProfiles: [...settings.modelProfiles, { ...profile, id: "off", enabled: false }] });
+    await expect(selectFeatureService("selection", "off")).rejects.toThrow("翻译服务不可用");
   });
 });

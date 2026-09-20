@@ -1,5 +1,9 @@
+import { pickRegion } from "./region";
+import { forWebsite } from "../../shared/reading-settings";
+import { isTargetLanguagePage } from "../../core/translation/page-preflight";
 import {
   collectGroupsAsync,
+  spreadSample,
   serialize,
   render,
   restyle,
@@ -13,7 +17,7 @@ import {
   hasTranslatableText,
 } from "../../core/translation/language";
 import { ROUTE_CHANGE_EVENT } from "../../shared/constants";
-import { blockedUrl } from "../../shared/site-access";
+import { pageAccessReason, pageAccessMessage, type PageAccessReason } from "../../shared/page-access";
 import type { PublicTranslatorSettings, ServerMessage } from "../../shared/types";
 interface Block {
   id: string;
@@ -35,9 +39,14 @@ export interface PageStatus {
   service: string;
   error: string;
   degraded: number;
+  unavailableReason?: PageAccessReason;
+  timings?: { planningMs: number; firstTranslationMs?: number; totalMs?: number; scans: number };
 }
 export function installPageTranslation() {
   const blocks = new Map<Node, Block>();
+  let scope: HTMLElement | undefined;
+  let cancelPicker: (() => void) | undefined;
+  let autoCheck = 0;
   let port: ReturnType<typeof browser.runtime.connect> | null = null;
   let observer: MutationObserver | undefined;
   let state = "idle",
@@ -58,17 +67,38 @@ export function installPageTranslation() {
   let autoTimer: ReturnType<typeof setTimeout> | undefined;
   let autoSuppressed = false;
   let pageHidden = false;
-  function eligible() {
-    return Boolean(settings?.pageTranslationEnabled && settings.privacyConsentAccepted &&
-      !settings.paused && !blockedUrl(location.href, settings) &&
-      /^https?:$/.test(location.protocol) && window.top === window && document.body);
+  let startedAt = 0;
+  let planningMs = 0;
+  let firstTranslationMs: number | undefined;
+  let totalMs: number | undefined;
+  let scans = 0;
+  const accessReason = () => pageAccessReason(settings, location.href, window.top === window, Boolean(document.body));
+  function eligible() { return !accessReason(); }
+  function rejectedStatus() {
+    const reason = accessReason();
+    return { ...status(), error: reason ? pageAccessMessage(reason, settings?.uiLanguage === "en") : error };
   }
   function scheduleAuto() {
     clearTimeout(autoTimer);
-    if (pageHidden || autoSuppressed || !eligible() || settings?.pageTranslationMode !== "auto" || state !== "idle") return;
-    autoTimer = setTimeout(() => {
-      if (!pageHidden && !autoSuppressed && eligible() && settings?.pageTranslationMode === "auto" && state === "idle") void start();
-    }, 400);
+    const check = ++autoCheck;
+    if (pageHidden || autoSuppressed || !eligible() || settings?.pageTranslationMode !== "auto" || !["idle", "skipped-target"].includes(state)) return;
+    autoTimer = setTimeout(() => { void (async () => {
+      const snapshot = settings;
+      const revision = epoch;
+      if (!snapshot || !eligible()) return;
+      const groups = await collectGroupsAsync(document.body, () => check === autoCheck && epoch === revision, { steps: 1200, groups: 200 });
+      const visible = groups.filter(g => { const rect = g.owner.getBoundingClientRect(); return rect.bottom > 0 && rect.top < innerHeight; });
+      // When nothing collected near the top of the document is on screen (the
+      // user scrolled, or the page opens with off-screen leading blocks), fall
+      // back to a spread sample of the whole walk instead of disabling the check.
+      const sampleGroups = visible.length ? visible : groups;
+      const skip = await isTargetLanguagePage(spreadSample(sampleGroups, 12).map(g => serialize(g).text), snapshot);
+      if (check !== autoCheck || epoch !== revision || snapshot !== settings || !eligible() || !["idle", "skipped-target"].includes(state)) return;
+      if (skip) { state = "skipped-target"; error = "页面已是目标语言 / Page already matches the target language"; }
+      else void start();
+      // A failed preflight must not silently auto-translate an already-
+      // target-language page; leave the page idle and let the user start it.
+    })().catch(() => {}); }, 400);
   }
   const pending = new Map<
     string,
@@ -84,20 +114,18 @@ export function installPageTranslation() {
     }
   >();
   function status(): PageStatus {
-    const all = [...blocks.values()];
+    const counts = { total: 0, done: 0, failed: 0, skipped: 0, pending: 0, characters: 0 };
+    for (const block of blocks.values()) {
+      counts.total++; counts.characters += block.source.text.length;
+      if (block.state === "done") counts.done++;
+      else if (block.state === "failed") counts.failed++;
+      else if (block.state === "skipped") counts.skipped++;
+      else counts.pending++;
+    }
     return {
-      state,
-      total: all.length,
-      done: all.filter((b) => b.state === "done").length,
-      failed: all.filter((b) => b.state === "failed").length,
-      skipped: all.filter((b) => b.state === "skipped").length,
-      pending: all.filter((b) => b.state === "pending" || b.state === "running")
-        .length,
-      characters: all.reduce((n, b) => n + b.source.text.length, 0),
-      target,
-      service,
-      error,
-      degraded,
+      state, ...counts, target, service, error, degraded,
+      unavailableReason: accessReason(),
+      timings: { planningMs, firstTranslationMs, totalMs, scans }
     };
   }
   function close() {
@@ -116,6 +144,9 @@ export function installPageTranslation() {
     close();
   }
   function restore() {
+    autoCheck++;
+    cancelPicker?.(); cancelPicker = undefined;
+    scope = undefined;
     state = "idle";
     close();
     observer?.disconnect();
@@ -173,11 +204,13 @@ export function installPageTranslation() {
     });
   }
   async function scan() {
-    if (state === "idle") return;
+    scans++;
+    if (["idle", "skipped-target", "selecting"].includes(state)) return;
+    if (scope && !scope.isConnected) { restore(); autoSuppressed = true; return; }
     const version = ++scanVersion;
     const revision = epoch;
     const groups = await collectGroupsAsync(
-      document.body,
+      scope ?? document.body,
       () => version === scanVersion && epoch === revision && state !== "idle",
     );
     if (version !== scanVersion || epoch !== revision || state === "idle")
@@ -232,10 +265,14 @@ export function installPageTranslation() {
     ).length;
     const next = [...blocks.values()]
       .filter((b) => b.state === "pending")
-      .sort((a, b) => viewportDistance(a) - viewportDistance(b))
+      .map(block => ({ block, distance: viewportDistance(block) }))
+      .sort((a, b) => a.distance - b.distance)
+      .map(entry => entry.block)
       .slice(0, Math.max(0, concurrency * batchSize - active));
     if (!next.length && !active) {
       state = "completed";
+      if (![...blocks.values()].some(block => block.state === "failed")) error = "";
+      totalMs = performance.now() - startedAt;
       return;
     }
     for (const b of next) {
@@ -262,6 +299,8 @@ export function installPageTranslation() {
           b.host?.remove();
           try {
             b.host = render(b.group, b.source, previewText, html && b.source.html.length <= 5000, languageCode(target)).host;
+            firstTranslationMs ??= performance.now() - startedAt;
+            restyle(b.host, b.group.owner, settings?.translationStyle);
             b.host.setAttribute("aria-busy", "true");
           } catch { /* Final rendering handles unsupported layouts. */ }
         }, 80);
@@ -310,6 +349,8 @@ export function installPageTranslation() {
         b.host = rendered.host;
         if (rendered.degraded) degraded++;
         b.state = "done";
+        firstTranslationMs ??= performance.now() - startedAt;
+        restyle(b.host, b.group.owner, settings?.translationStyle);
       })()
         .catch((e) => {
           if (revision === epoch) {
@@ -329,22 +370,28 @@ export function installPageTranslation() {
         });
     }
   }
-  async function start(override?: string, resume = false) {
+  async function start(override?: string, resume = false, region?: HTMLElement) {
     if (!eligible()) return;
     if (!resume) restore();
     else close();
+    if (region) scope = region;
+    startedAt = performance.now(); planningMs = 0; firstTranslationMs = undefined; totalMs = undefined; scans = 0;
     state = "starting";
     error = "";
     if (resume) budget += 100_000;
     connect();
     const revision = epoch;
     try {
-      const initialGroups = await collectGroupsAsync(
-        document.body,
+      let initialGroups = await collectGroupsAsync(
+        scope ?? document.body,
         () => epoch === revision,
+        // Walk the full step budget and spread the sample across it, so the
+        // language plan is not decided by unrepresentative top-of-page chrome.
+        { steps: 1200, groups: 200 },
       );
       if (epoch !== revision) return;
-      const sample = initialGroups
+      if (!initialGroups.length) initialGroups = await collectGroupsAsync(scope ?? document.body, () => epoch === revision);
+      const sample = spreadSample(initialGroups, 12)
         .map((g) => serialize(g).text)
         .join("\n")
         .slice(0, 10000);
@@ -365,6 +412,7 @@ export function installPageTranslation() {
         id,
       );
       if (revision !== epoch) return;
+      planningMs = performance.now() - startedAt;
       target = plan.start?.targetLanguage ?? "";
       service = plan.start?.serviceName ?? "";
       html = Boolean(plan.start?.html);
@@ -385,6 +433,7 @@ export function installPageTranslation() {
             )
           )
             return;
+          if (scope && scope.isConnected && records.every(r => !scope!.contains(r.target))) return;
           clearTimeout(scanTimer);
           scanTimer = setTimeout(() => {
             void scan();
@@ -420,14 +469,22 @@ export function installPageTranslation() {
         }));
       }
       if (message.type === "page-control") {
+        if (message.action === "region") {
+          if (!eligible()) return Promise.resolve(rejectedStatus());
+          if (!["idle", "skipped-target"].includes(state)) { error = "请先恢复原文再选择区域 / Restore originals before selecting a region"; return Promise.resolve(status()); }
+          autoSuppressed = true; clearTimeout(autoTimer); restore(); state = "selecting";
+          cancelPicker = pickRegion(root => { cancelPicker = undefined; void start(undefined, false, root); }, () => { cancelPicker = undefined; state = "idle"; }, settings?.uiLanguage === "en");
+          return Promise.resolve(status());
+        }
         if (["pause", "restore"].includes(message.action ?? "")) autoSuppressed = true;
-        if (["start", "resume", "retry"].includes(message.action ?? "") && !eligible()) return Promise.resolve(status());
+        if (["start", "resume", "retry"].includes(message.action ?? "") && !eligible()) return Promise.resolve(rejectedStatus());
         if (message.action === "start") void start(message.target);
         if (message.action === "pause") pause();
         if (message.action === "resume" && state === "paused")
           void start(undefined, true);
         if (message.action === "restore") restore();
         if (message.action === "retry") {
+          error = "";
           for (const b of blocks.values())
             if (b.state === "failed") b.state = "pending";
           if (state === "paused") void start(undefined, true);
@@ -460,7 +517,9 @@ export function installPageTranslation() {
   const settingsPort = browser.runtime.connect({ name: "public-settings" });
   settingsPort.onMessage.addListener((next: PublicTranslatorSettings) => {
     const previous = settings;
-    settings = next;
+    settings = forWebsite(next, location.href);
+    next = settings;
+    updateStyle();
     if (!eligible()) { clearTimeout(autoTimer); restore(); return; }
     if (previous?.pageTranslationMode === "auto" && next.pageTranslationMode !== "auto") {
       clearTimeout(autoTimer);
@@ -471,11 +530,15 @@ export function installPageTranslation() {
   });
   settingsPort.onDisconnect.addListener(() => { settings = undefined; clearTimeout(autoTimer); restore(); });
   // Empty application shells can receive their first readable content after load.
-  const autoObserver = new MutationObserver(() => scheduleAuto());
+  const autoObserver = new MutationObserver(records => {
+    if (records.every(r => (r.target instanceof Element && r.target.closest(`[${HOST}]`)) ||
+      (r.type === "childList" && [...r.addedNodes, ...r.removedNodes].every(n => n instanceof Element && n.hasAttribute(HOST))))) return;
+    scheduleAuto();
+  });
   autoObserver.observe(document.documentElement, { subtree: true, childList: true, characterData: true });
-  const updateStyle = () => {
-    for (const b of blocks.values()) if (b.host) restyle(b.host, b.group.owner);
-  };
+  function updateStyle() {
+    for (const b of blocks.values()) if (b.host) restyle(b.host, b.group.owner, settings?.translationStyle);
+  }
   window.addEventListener("resize", updateStyle);
   matchMedia("(prefers-color-scheme: dark)").addEventListener(
     "change",

@@ -8,19 +8,21 @@ import { DEFAULT_SETTINGS, DEFAULT_PUBLIC_SETTINGS, type TriggerMode, type Trans
 interface ModelRequest { model?: string; source: string; aborted: boolean; response: ServerResponse; batch?: string[] }
 interface Extension {
   page: Page;
+  autoFinish: (delayMs: number) => void;
   requests: ModelRequest[];
   configure: (mode: TriggerMode) => Promise<void>;
   finish: (index: number) => void;
   control: (action: string, target?: string) => Promise<any>;
   pageStatus: () => Promise<any>;
   settings: (patch: Partial<TranslatorSettings>) => Promise<void>;
-  machine: (provider?: "microsoft" | "baidu" | "google" | "deepl") => Promise<void>;
+  machine: (provider?: "microsoft" | "baidu" | "google") => Promise<void>;
   options: () => Promise<Page>;
 }
 
 export const test = base.extend<{ extension: Extension }>({
   extension: async ({}, use) => {
     const requests: ModelRequest[] = [];
+    let autoFinishMs: number | undefined;
     const server = createServer(async (req, res) => {
       if (req.url?.startsWith("/machine")) {
         let raw = ""; for await (const c of req) raw += c;
@@ -55,6 +57,9 @@ export const test = base.extend<{ extension: Extension }>({
       res.on("close", () => { if (!res.writableEnded) request.aborted = true; });
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
       res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: batch?.[0] ?? "译文" } }] })}\n\n`);
+      if (autoFinishMs !== undefined) setTimeout(() => {
+        if (!res.destroyed) res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: batch?.slice(1).join("") ?? "完成" } }] })}\n\ndata: [DONE]\n\n`);
+      }, autoFinishMs);
     });
     await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
     const address = server.address();
@@ -63,9 +68,10 @@ export const test = base.extend<{ extension: Extension }>({
     const profile = await mkdtemp(join(tmpdir(), "flow-translate-e2e-"));
     let context: BrowserContext | undefined;
     try {
-      const extensionPath = resolve(".output/chrome-mv3");
+      const extensionPath = resolve(process.env.TRANSLATOR_EXTENSION_PATH || ".output/chrome-mv3");
       context = await chromium.launchPersistentContext(profile, {
         channel: "chromium",
+        ...(process.env.TRANSLATOR_TEST_PROXY ? { proxy: { server: process.env.TRANSLATOR_TEST_PROXY, bypass: "127.0.0.1,localhost" } } : {}),
         headless: true,
         args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`]
       });
@@ -94,13 +100,13 @@ export const test = base.extend<{ extension: Extension }>({
         requests.length = 0;
       };
       const settings = async (patch: Partial<TranslatorSettings>) => {
-        await worker.evaluate(async patch => { const api=(globalThis as any).chrome; const stored=await api.storage.local.get(["translatorSettings","publicTranslatorSettings"]); await api.storage.local.set({translatorSettings:{...stored.translatorSettings,...patch},publicTranslatorSettings:{...stored.publicTranslatorSettings,...Object.fromEntries(Object.entries(patch).filter(([key])=>["blockedSites","allowedSites","siteAccessMode","pageTranslationEnabled","pageTranslationMode","bidirectional","pairSourceLanguage","pairLanguage","targetLanguage","privacyConsentAccepted","triggerMode"].includes(key)))}}); },patch);
+        await worker.evaluate(async patch => { const api=(globalThis as any).chrome; const stored=await api.storage.local.get(["translatorSettings","publicTranslatorSettings"]); await api.storage.local.set({translatorSettings:{...stored.translatorSettings,...patch},publicTranslatorSettings:{...stored.publicTranslatorSettings,...Object.fromEntries(Object.entries(patch).filter(([key])=>["translationStyle","siteRules","blockedSites","allowedSites","siteAccessMode","pageTranslationEnabled","pageTranslationMode","bidirectional","pairSourceLanguage","pairLanguage","targetLanguage","privacyConsentAccepted","triggerMode"].includes(key)))}}); },patch);
       };
       const control = async (action: string, target?: string) => worker.evaluate(async ({action,target,url}) => { const api=(globalThis as any).chrome; const tabs=await api.tabs.query({}); const tab=tabs.find((t:any)=>t.url?.startsWith(url)); return api.tabs.sendMessage(tab.id,{type:"page-control",action,target}); },{action,target,url:origin});
       const pageStatus = async () => worker.evaluate(async url => { const api=(globalThis as any).chrome;const tabs=await api.tabs.query({});return api.tabs.sendMessage(tabs.find((t:any)=>t.url?.startsWith(url)).id,{type:"page-status"}); },origin);
-      const machine = async (provider: "microsoft" | "baidu" | "google" | "deepl" = "microsoft") => { await settings({provider,apiBaseUrl:`${origin}/machine/${provider}`,modelProfiles:[{...DEFAULT_SETTINGS.modelProfiles[0]!,provider,apiBaseUrl:`${origin}/machine/${provider}`,apiKey:"e2e-key",appId:"app-id",region:"global",model:""}]}); };
+      const machine = async (provider: "microsoft" | "baidu" | "google" = "microsoft") => { await settings({provider,apiBaseUrl:`${origin}/machine/${provider}`,modelProfiles:[{...DEFAULT_SETTINGS.modelProfiles[0]!,provider,apiBaseUrl:`${origin}/machine/${provider}`,apiKey:"e2e-key",appId:"app-id",region:"global",model:""}]}); };
       const options = async () => { const p=await context!.newPage();await p.goto(`chrome-extension://${new URL(worker.url()).host}/options.html`);return p; };
-      await use({ page, requests, configure, settings, control, pageStatus, machine, options, finish: (index) => {
+      await use({ autoFinish: delayMs => { autoFinishMs = delayMs; }, page, requests, configure, settings, control, pageStatus, machine, options, finish: (index) => {
         requests[index]!.response.end(`data: ${JSON.stringify({ choices: [{ delta: { content: requests[index]!.batch?.slice(1).join("") ?? "完成" } }] })}\n\ndata: [DONE]\n\n`);
       } });
     } finally {

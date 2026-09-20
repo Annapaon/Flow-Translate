@@ -83,3 +83,34 @@ ESLint 使用 JS/TypeScript 推荐规则与 React Hooks 调用规则；显式 `a
 - 生产构建通过，已核对弹窗、设置页、侧边栏入口、图标与 Alt+Q 默认快捷键声明。
 - 源码相对引用、文档本地链接和 Git 差异格式检查通过；ESLint 仍为 0 错误、7 条存量警告。
 - 安装包输出目录与版本保持不变；此次生成了测试使用的构建目录，未重新生成 ZIP 发布包。
+
+## 1.3.10 阅读体验开发
+
+新增 `src/shared/reading-settings.ts` 与 `ReadingPreferences.tsx` 管理样式、网站规则和设置入口；`src/content/page-translation/region.ts` 管理区域选择；`src/core/translation/page-preflight.ts` 管理本地语言预判；`src/core/providers/diagnostics.ts` 管理连接诊断。“换一种表达”相关实现已于 1.3.20 移除。
+
+新增回归见 `tests/unit/reading-features.test.ts` 和 `tests/e2e/reading-features.spec.ts`。本轮 98 项单元测试、50 项浏览器测试通过，ESLint 仍有 7 条存量警告；版本与发布包见 [1.3.10 更新说明](releases/RELEASE_NOTES_1.3.10.md)。
+
+## 1.3.21 配置事务与验收工具
+
+- `src/shared/settings.ts` 使用同源 Web Locks 串行化设置写入；界面使用 `patchSettings`、`saveSettingsChanges`，服务选择使用 `src/shared/service-selection.ts`。导入和重置仍是显式整份替换。不要在功能页面重新添加“读取全部设置后整份覆盖”的保存逻辑。
+- `settings-changes.ts` 将旧界面的差异合并到最新设置；独立功能绑定、场景提示词和服务卡片字段分别合并，已被另一页面删除的服务不会因旧界面保存而复活。同一字段同时修改采用后保存者覆盖。
+- `options/components/` 分离提示词、翻译配置和模型卡片；`popup/usePageSession.ts` 管理全文状态、页面连接和错误；`useSaveFeedback.ts` 统一保存状态及 4 秒反馈。
+- `page-access.ts` 提供结构化的不可用原因；全文状态查询运行中 700ms、空闲 5s、连接失败 10s，页面隐藏时暂停后续查询。回到页面或获得焦点会主动刷新。
+
+```bash
+# 先构建，再进行可重复的本地性能测试（无外部服务调用）
+npm run build
+npm run test:benchmark
+# 真实公开网站 DOM 测试，翻译仍使用本地模拟接口
+npm run test:acceptance:websites
+# 网络需要代理时，显式传给测试浏览器（本地模拟接口绕过代理）
+TRANSLATOR_TEST_PROXY="$HTTPS_PROXY" npm run test:acceptance:websites
+# 真正调用专用配置中的已启用服务，每个服务发送一段很短的日文测试文本
+TRANSLATOR_TEST_SETTINGS=/absolute/path/to/test-settings.json npm run test:acceptance:services
+```
+
+真实服务测试不读取个人浏览器的配置。没有提供 `TRANSLATOR_TEST_SETTINGS` 时记录 `not-run` 并跳过；不能将跳过记作联调通过。报告不写入密钥、端点、原始服务响应或配置名称。真实网站测试可用逗号分隔的 `TRANSLATOR_TEST_URLS` 指定网址，网络不可达与翻译失败分别记录。
+
+性能数据在 `.output/benchmarks/`，验收数据在 `.output/acceptance/`，均不提交 Git。使用 `TRANSLATOR_EXTENSION_PATH` 指向旧版本解压目录，并设置 `BENCHMARK_LABEL`，可以在同一测试条件下对比版本。实时服务测试仅验证协议连通与非空输出；真实浏览器接口授权及人工译文质量还需单独验收。
+
+设置 `BENCHMARK_EXTRA_NODES=2000` 可额外加入布局节点，对比大型页面的规划与首段延迟。基准应顺序运行，避免其他浏览器测试争抢 CPU；不能将本地模拟接口的数据当作真实服务性能。

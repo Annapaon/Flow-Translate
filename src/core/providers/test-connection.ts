@@ -1,3 +1,4 @@
+import { diagnose, diagnostic } from "./diagnostics";
 import { registerMeter } from "../translation/meter";
 import type { ProviderConfig, TestResult, TranslationProvider, TranslationRequest } from "./types";
 
@@ -31,23 +32,11 @@ export async function runConnectionTest(provider: TranslationProvider, config: P
       if ((chunk.type === "delta" || chunk.type === "reasoning") && chunk.text) received = true;
     }
     if (!received) {
-      return { ok: false, message: english ? "Connected, but the model returned no text" : "连接成功，但模型没有返回文本内容" };
+      return diagnostic("empty", english);
     }
     return { ok: true, message: english ? "Connected; the model returned content" : "连接成功，模型已返回内容" };
   } catch (error) {
-    // Only the timeout aborts the controller here, so an abort means the
-    // service never answered in time. Surface that as the cause instead of
-    // the raw AbortError text.
-    if (controller.signal.aborted) {
-      const seconds = Math.round(timeoutMs / 1_000);
-      return {
-        ok: false,
-        message: english
-          ? `Connection timed out after ${seconds}s. Check that the model service is running and that the address and port are correct.`
-          : `连接超时（${seconds} 秒）。请检查模型服务是否已启动、地址和端口是否正确。`
-      };
-    }
-    return { ok: false, message: error instanceof Error ? error.message : (english ? "Connection failed" : "连接失败") };
+    return diagnose(error, english, controller.signal.aborted);
   } finally {
     clearTimeout(timeout);
     unmeter();

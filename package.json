@@ -1,6 +1,6 @@
 {
   "name": "flow-translate",
-  "version": "1.3.8",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,7 +15,10 @@
     "format": "prettier --ignore-path .gitignore --ignore-path .prettierignore --write .",
     "format:check": "prettier --ignore-path .gitignore --ignore-path .prettierignore --check .",
     "test:e2e": "npm run build && playwright test",
-    "check": "npm run lint && npm run typecheck && npm test && npm run test:e2e"
+    "check": "npm run lint && npm run typecheck && npm test && npm run test:e2e",
+    "test:benchmark": "playwright test --config playwright.benchmark.config.ts",
+    "test:acceptance:services": "vitest run --config vitest.live.config.ts",
+    "test:acceptance:websites": "playwright test --config playwright.acceptance.config.ts"
   },
   "dependencies": {
     "@wxt-dev/module-react": "^1.2.2",
