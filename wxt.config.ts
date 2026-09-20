@@ -6,7 +6,7 @@ export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   manifest: {
     name: "流译助手",
-    description: "选中网页文本，使用你自己的大模型 API 进行流式翻译。",
+    description: "支持划词、网页全文和长文本翻译，可连接自定义大模型或机器翻译服务。",
     permissions: ["activeTab", "storage", "contextMenus", "sidePanel"],
     host_permissions: ["http://localhost/*", "http://127.0.0.1/*", "http://[::1]/*"],
     // https endpoints and LAN http endpoints are granted per-origin at
@@ -16,10 +16,6 @@ export default defineConfig({
       "translate-page": {
         suggested_key: { default: "Alt+Q" },
         description: "翻译当前网页全文"
-      },
-      "translate-selection": {
-        suggested_key: { default: "Alt+T" },
-        description: "翻译当前选中的文本"
       }
     },
     action: {

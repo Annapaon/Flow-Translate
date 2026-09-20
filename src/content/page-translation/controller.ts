@@ -64,6 +64,8 @@ export function installPageTranslation() {
     scanTimer: ReturnType<typeof setTimeout> | undefined;
   let oldUrl = location.href;
   let settings: PublicTranslatorSettings | undefined;
+  let markSettingsReady: (() => void) | undefined;
+  const settingsReady = new Promise<void>(resolve => { markSettingsReady = resolve; });
   let autoTimer: ReturnType<typeof setTimeout> | undefined;
   let autoSuppressed = false;
   let pageHidden = false;
@@ -451,13 +453,13 @@ export function installPageTranslation() {
     }
   }
   browser.runtime.onMessage.addListener(
-    (message: { type?: string; action?: string; target?: string }) => {
+    async (message: { type?: string; action?: string; target?: string }) => {
       if (message.type === "page-shortcut") {
         if (eligible() && !["running", "starting"].includes(state)) {
           autoSuppressed = false;
           void start(undefined, state === "paused");
         }
-        return Promise.resolve(status());
+        return status();
       }
       if (message.type === "page-preview") {
         return collectGroupsAsync(document.body, () => true).then((groups) => ({
@@ -469,15 +471,21 @@ export function installPageTranslation() {
         }));
       }
       if (message.type === "page-control") {
+        if (["start", "region", "retry", "resume"].includes(message.action ?? "") && accessReason() === "settings-loading") {
+          await Promise.race([
+            settingsReady,
+            new Promise<void>(resolve => setTimeout(resolve, 2000))
+          ]);
+        }
         if (message.action === "region") {
-          if (!eligible()) return Promise.resolve(rejectedStatus());
-          if (!["idle", "skipped-target"].includes(state)) { error = "请先恢复原文再选择区域 / Restore originals before selecting a region"; return Promise.resolve(status()); }
+          if (!eligible()) return rejectedStatus();
+          if (!["idle", "skipped-target"].includes(state)) { error = "请先恢复原文再选择区域 / Restore originals before selecting a region"; return status(); }
           autoSuppressed = true; clearTimeout(autoTimer); restore(); state = "selecting";
           cancelPicker = pickRegion(root => { cancelPicker = undefined; void start(undefined, false, root); }, () => { cancelPicker = undefined; state = "idle"; }, settings?.uiLanguage === "en");
-          return Promise.resolve(status());
+          return status();
         }
         if (["pause", "restore"].includes(message.action ?? "")) autoSuppressed = true;
-        if (["start", "resume", "retry"].includes(message.action ?? "") && !eligible()) return Promise.resolve(rejectedStatus());
+        if (["start", "resume", "retry"].includes(message.action ?? "") && !eligible()) return rejectedStatus();
         if (message.action === "start") void start(message.target);
         if (message.action === "pause") pause();
         if (message.action === "resume" && state === "paused")
@@ -493,9 +501,9 @@ export function installPageTranslation() {
             void pump();
           }
         }
-        return Promise.resolve(status());
+        return status();
       }
-      if (message.type === "page-status") return Promise.resolve(status());
+      if (message.type === "page-status") return status();
       if (message.type === "access-changed") restore();
     },
   );
@@ -518,6 +526,7 @@ export function installPageTranslation() {
   settingsPort.onMessage.addListener((next: PublicTranslatorSettings) => {
     const previous = settings;
     settings = forWebsite({ ...next, ...next.featurePreferences?.page }, location.href);
+    markSettingsReady?.(); markSettingsReady = undefined;
     next = settings;
     updateStyle();
     if (!eligible()) { clearTimeout(autoTimer); restore(); return; }

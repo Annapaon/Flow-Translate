@@ -22,17 +22,14 @@ export function ReadingPreferences({
   const ruleSettings = draft
     ? {
         ...s,
-        bidirectional: draft.language.kind === "pair",
+        bidirectional: false,
         ...(draft.language.kind === "fixed"
           ? {
               sourceLanguage: draft.language.source,
               targetLanguage: draft.language.target
             }
           : draft.language.kind === "pair"
-            ? {
-                pairSourceLanguage: draft.language.first,
-                pairLanguage: draft.language.second
-              }
+            ? { sourceLanguage: "自动检测", targetLanguage: draft.language.second }
             : {})
       }
     : s;
@@ -242,21 +239,16 @@ export function ReadingPreferences({
             {draft.language.kind !== "inherit" && (
               <LanguageDirection
                 settings={ruleSettings}
+                allowBidirectional={false}
                 update={(patch) => {
                   const next = { ...ruleSettings, ...patch };
                   setDraft({
                     ...draft,
-                    language: next.bidirectional
-                      ? {
-                          kind: "pair",
-                          first: next.pairSourceLanguage,
-                          second: next.pairLanguage
-                        }
-                      : {
-                          kind: "fixed",
-                          source: next.sourceLanguage,
-                          target: next.targetLanguage
-                        }
+                    language: {
+                      kind: "fixed",
+                      source: next.sourceLanguage,
+                      target: next.targetLanguage
+                    }
                   });
                 }}
               />

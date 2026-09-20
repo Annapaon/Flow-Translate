@@ -38,7 +38,13 @@ import { schedule, delay, modelLane } from "./scheduler";
 type Port = ReturnType<typeof browser.runtime.connect>;
 export function attachTranslationPort(port: Port) {
   const page = port.name === "page-translation";
-  const feature = page ? "page" : port.sender?.url?.split(/[?#]/)[0] === browser.runtime.getURL("/sidepanel.html") ? "longText" : "selection";
+  // New clients identify their feature explicitly. Keep the URL fallback for
+  // ports opened by an older side-panel bundle during a development reload.
+  const feature = page ? "page" : port.name === "long-text-translation"
+    ? "longText"
+    : port.name === "selection-translation"
+      ? "selection"
+      : port.sender?.url?.split(/[?#]/)[0] === browser.runtime.getURL("/sidepanel.html") ? "longText" : "selection";
   const batcher = new PageBatcher();
   const controllers = new Map<string, AbortController>();
   let disconnected = false;
@@ -151,6 +157,7 @@ export function attachTranslationPort(port: Port) {
           serviceName: settings.modelProfiles.find(
             (p) => p.id === settings!.activeModelId,
           )?.name,
+          modelName: isMachine(settings.provider) ? undefined : settings.model,
         });
         send({ type: "finish", requestId: id });
         return;
@@ -210,6 +217,7 @@ export function attachTranslationPort(port: Port) {
         enableThinking: settings.enableThinking,
         html,
         serviceName: profile.name,
+        modelName: isMachine(settings.provider) ? undefined : settings.model,
       });
       const key =
         (page ? "page:" : "selection:") +

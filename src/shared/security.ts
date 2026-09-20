@@ -98,10 +98,14 @@ const profileSchema = z.object({
   authMode: z.enum(["bearer", "x-api-key", "both"]).optional().default("bearer")
 }).strict();
 
-const scenePromptsSchema = z.object({
-  general: z.string().max(20_000), technical: z.string().max(20_000),
-  academic: z.string().max(20_000), business: z.string().max(20_000)
-}).strict();
+const promptStyleIdSchema = z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/);
+const scenePromptsSchema = z.record(promptStyleIdSchema, z.string().max(20_000))
+  .refine(value => Object.keys(value).length <= 50, "Too many prompt styles");
+const promptStylesSchema = z.array(z.object({
+  id: promptStyleIdSchema,
+  name: z.string().min(1).max(100),
+  description: z.string().max(300)
+}).strict()).min(1).max(50);
 
 const featurePreferencesSchema = z.object({
   sourceLanguage: z.string().min(1).max(100),
@@ -109,7 +113,7 @@ const featurePreferencesSchema = z.object({
   bidirectional: z.boolean(),
   pairSourceLanguage: z.string().min(1).max(100),
   pairLanguage: z.string().min(1).max(100),
-  translationScene: z.enum(["general", "technical", "academic", "business"]),
+  translationScene: promptStyleIdSchema,
   smartOutput: z.boolean(),
   outputMode: z.enum(["translation", "explanation", "vocabulary", "grammar"]),
   enableThinking: z.boolean()
@@ -123,19 +127,20 @@ const importSchema = z.object({
   featurePreferences: z.object({ selection: featurePreferencesSchema.optional(), page: featurePreferencesSchema.optional(), longText: featurePreferencesSchema.optional() }).strict().optional(),
   pageTranslationEnabled: z.boolean().optional(),
   pageTranslationMode: z.enum(["manual", "auto"]).optional(),
-  schemaVersion: z.number().int().min(1).max(3).optional(),
+  schemaVersion: z.number().int().min(1).max(4).optional(),
   bidirectional: z.boolean().optional(), pairSourceLanguage: z.string().min(1).max(100).optional(), pairLanguage: z.string().min(1).max(100).optional(), smartOutput: z.boolean().optional(),
   terms: z.array(z.object({ source: z.string().max(200), target: z.string().max(300), sourceLanguage: z.string().max(100), targetLanguage: z.string().max(100), preserve: z.boolean() }).strict()).max(100).optional(),
   modelProfiles: z.array(profileSchema).min(1).max(30), activeModelId: z.string().max(100).optional(),
   uiLanguage: z.enum(["zh-CN", "en"]).optional(), keyStorage: z.enum(["local", "session"]).optional(),
   targetLanguage: z.string().min(1).max(100).optional(),
   sourceLanguage: z.string().min(1).max(100).optional(), outputMode: z.enum(["translation", "explanation", "vocabulary", "grammar"]).optional(),
-  translationScene: z.enum(["general", "technical", "academic", "business"]).optional(),
+  translationScene: promptStyleIdSchema.optional(),
   triggerMode: z.enum(["click", "auto"]).optional(), enableThinking: z.boolean().optional(),
   enableHistory: z.boolean().optional(), enableCache: z.boolean().optional(), siteAccessMode: z.enum(["blacklist", "whitelist"]).optional(),
   minChars: z.number().int().min(1).max(100).optional(), maxChars: z.number().int().min(100).max(20_000).optional(),
   systemPrompt: z.string().max(20_000).optional(), blockedSites: z.array(z.string().max(255)).max(500).optional(),
   allowedSites: z.array(z.string().max(255)).max(500).optional(), sensitiveDefaultsApplied: z.boolean().optional(),
+  promptStyles: promptStylesSchema.optional(),
   scenePrompts: scenePromptsSchema.optional()
 }).strip();
 

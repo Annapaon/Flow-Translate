@@ -8,11 +8,17 @@ export type TriggerMode = "click" | "auto";
  */
 export type KeyStorageMode = "local" | "session";
 export type OutputMode = "translation" | "explanation" | "vocabulary" | "grammar";
-export type TranslationScene = "general" | "technical" | "academic" | "business";
+export type TranslationScene = string;
 export type SiteAccessMode = "blacklist" | "whitelist";
 export type ProviderType = "openai-compatible" | "anthropic" | "gemini" | "ollama" | "lm-studio" | "xinference" | "vllm" | "sglang" | "baidu" | "microsoft" | "google";
 export type UiLanguage = "zh-CN" | "en";
 export type ScenePrompts = Record<TranslationScene, string>;
+
+export interface PromptStyle {
+  id: string;
+  name: string;
+  description: string;
+}
 
 export const TRANSLATION_SCENES: Array<{ id: TranslationScene; name: string; description: string }> = [
   { id: "general", name: "通用", description: "自然、准确，适用于日常网页内容" },
@@ -20,6 +26,8 @@ export const TRANSLATION_SCENES: Array<{ id: TranslationScene; name: string; des
   { id: "academic", name: "学术", description: "严谨、客观，符合学术写作规范" },
   { id: "business", name: "商务", description: "专业、简洁，适合商务沟通" }
 ];
+
+export const DEFAULT_PROMPT_STYLES: PromptStyle[] = TRANSLATION_SCENES.map(scene => ({ ...scene }));
 
 export const DEFAULT_SCENE_PROMPTS: ScenePrompts = {
   general: "在忠实原意、语气和上下文的前提下，使用自然流畅、符合目标语言母语习惯的表达。避免生硬直译；人名、地名、品牌名等按目标语言惯例处理，并保持原文段落结构。",
@@ -100,6 +108,7 @@ export interface TranslatorSettings {
   sourceLanguage: string;
   outputMode: OutputMode;
   translationScene: TranslationScene;
+  promptStyles: PromptStyle[];
   scenePrompts: ScenePrompts;
   triggerMode: TriggerMode;
   enableThinking: boolean;
@@ -122,7 +131,7 @@ export interface TranslatorSettings {
 export const DEFAULT_SETTINGS: TranslatorSettings = {
   translationStyle: { scale: 1, spacing: 0.5, tone: "purple", background: true },
   siteRules: [],
-  separateModels: false,
+  separateModels: true,
   featureModels: { selection: "", page: "", longText: "" },
   featurePreferences: {
     selection: { ...DEFAULT_FEATURE_PREFERENCES.selection },
@@ -130,7 +139,7 @@ export const DEFAULT_SETTINGS: TranslatorSettings = {
     longText: { ...DEFAULT_FEATURE_PREFERENCES.longText }
   },
   pageTranslationEnabled: true, pageTranslationMode: "manual",
-  schemaVersion: 3, bidirectional: false, pairSourceLanguage: "简体中文", pairLanguage: "日本語", smartOutput: false, terms: [],
+  schemaVersion: 4, bidirectional: false, pairSourceLanguage: "简体中文", pairLanguage: "日本語", smartOutput: false, terms: [],
   privacyConsentAccepted: false,
   uiLanguage: "zh-CN",
   keyStorage: "local",
@@ -158,7 +167,8 @@ export const DEFAULT_SETTINGS: TranslatorSettings = {
   sourceLanguage: "自动检测",
   outputMode: "translation",
   translationScene: "general",
-  scenePrompts: DEFAULT_SCENE_PROMPTS,
+  promptStyles: DEFAULT_PROMPT_STYLES.map(style => ({ ...style })),
+  scenePrompts: { ...DEFAULT_SCENE_PROMPTS },
   triggerMode: "click",
   enableThinking: false,
   enableHistory: false,
@@ -180,7 +190,7 @@ export const DEFAULT_SETTINGS: TranslatorSettings = {
 export type PublicTranslatorSettings = Pick<TranslatorSettings,
   "pageTranslationEnabled" | "pageTranslationMode" | "privacyConsentAccepted" | "uiLanguage" | "targetLanguage" | "triggerMode" | "enableThinking" |
   "blockedSites" | "allowedSites" | "siteAccessMode" | "minChars" | "maxChars"
-> & { translationStyle?: TranslationStyle; siteRules?: SiteRule[]; featurePreferences?: Record<TranslationFeature, FeatureTranslationPreferences>; model: string; paused?: boolean; bidirectional?: boolean; pairSourceLanguage?: string; pairLanguage?: string; services?: Array<{ id: string; name: string }> };
+> & { translationStyle?: TranslationStyle; siteRules?: SiteRule[]; featurePreferences?: Record<TranslationFeature, FeatureTranslationPreferences>; model: string; paused?: boolean; bidirectional?: boolean; pairSourceLanguage?: string; pairLanguage?: string; services?: Array<{ id: string; name: string }>; selectionService?: { id: string; name: string; model?: string; machine: boolean } };
 
 export const DEFAULT_PUBLIC_SETTINGS: PublicTranslatorSettings = {
   pageTranslationEnabled: DEFAULT_SETTINGS.pageTranslationEnabled,
@@ -196,7 +206,13 @@ export const DEFAULT_PUBLIC_SETTINGS: PublicTranslatorSettings = {
   minChars: DEFAULT_SETTINGS.minChars,
   maxChars: DEFAULT_SETTINGS.maxChars,
   featurePreferences: DEFAULT_SETTINGS.featurePreferences,
-  model: DEFAULT_SETTINGS.model
+  model: DEFAULT_SETTINGS.model,
+  selectionService: {
+    id: DEFAULT_SETTINGS.modelProfiles[0]!.id,
+    name: DEFAULT_SETTINGS.modelProfiles[0]!.name,
+    model: DEFAULT_SETTINGS.modelProfiles[0]!.model,
+    machine: false
+  }
 };
 
 export type ClientMessage =
@@ -205,7 +221,7 @@ export type ClientMessage =
   | { type: "cancel"; requestId: string };
 
 export type ServerMessage =
-  | { type: "start"; requestId: string; targetLanguage?: string; sourceLanguage?: string; uncertain?: boolean; enableThinking?: boolean; html?: boolean; maxConcurrency?: number; batchSize?: number; serviceName?: string }
+  | { type: "start"; requestId: string; targetLanguage?: string; sourceLanguage?: string; uncertain?: boolean; enableThinking?: boolean; html?: boolean; maxConcurrency?: number; batchSize?: number; serviceName?: string; modelName?: string }
   | { type: "retry"; requestId: string; attempt: number }
   | { type: "reasoning"; requestId: string; text: string }
   | { type: "delta"; requestId: string; text: string }

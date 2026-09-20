@@ -71,6 +71,8 @@ for (const provider of ["baidu", "google"] as const)
       .getByRole("button", { name: "Translate selection", exact: true })
       .click();
     await expect(e.page.locator(".result")).toContainText("第一");
+    await expect(e.page.locator(".foot")).toContainText("默认模型");
+    await expect.poll(() => e.requests.length).toBe(1);
     await expect(
       e.page.getByRole("button", { name: "Edit", exact: true }),
     ).toBeVisible();
@@ -183,7 +185,10 @@ test("long sidepanel input is split into bounded machine batches and completes",
   await panel.locator(".source textarea").fill(source);
   await panel.getByRole("button", { name: "Translate", exact: true }).click();
   await expect(panel.locator(".output")).toContainText("第一");
-  await expect(panel.locator(".actions")).toContainText("Translation complete");
+  await expect(panel.locator(".actions")).not.toContainText("Translation complete");
+  await expect(panel.locator(".actions")).not.toContainText("→");
+  await expect(panel.locator(".translation-error")).toHaveCount(0);
+  await expect.poll(() => e.requests.length).toBeGreaterThan(1);
   expect(e.requests.length).toBeGreaterThan(1);
   expect(e.requests.length).toBeLessThan(5);
 });

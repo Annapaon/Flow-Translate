@@ -86,7 +86,7 @@ describe("translation rules and migration", () => {
     expect(read.modelProfiles[0]?.id).toBe(profile.id);
     expect(read.modelProfiles[0]?.kind).toBe("machine");
     expect(read.apiKey).toBe("secret-value");
-    expect(read.schemaVersion).toBe(3);
+    expect(read.schemaVersion).toBe(4);
     expect(read.bidirectional).toBe(false);
   });
   it("isolates page and selection cache capacity and honors pre-commit cancellation", async () => {
@@ -402,7 +402,7 @@ it("defaults page translation to manual, imports preferences and gates shortcut 
     await handleTranslationCommand("translate-page", { id: 7 });
     expect(send).toHaveBeenCalledWith(7, { type: "page-shortcut" });
     await handleTranslationCommand("translate-selection", { id: 7 });
-    expect(send).toHaveBeenLastCalledWith(7, { type: "translate-current-selection" });
+    expect(send).toHaveBeenCalledTimes(1);
     const imported = validateImportedSettings({ ...DEFAULT_SETTINGS, pageTranslationMode: "auto", pageTranslationEnabled: false });
     expect(imported.pageTranslationMode).toBe("auto");
     expect(imported.pageTranslationEnabled).toBe(false);

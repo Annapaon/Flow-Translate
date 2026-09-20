@@ -33,8 +33,9 @@ describe("website and reading preferences", () => {
     const settings = { ...DEFAULT_SETTINGS, siteRules: [parent, child] };
     expect(forWebsite(settings, "https://news.example.com/a")).toMatchObject({
       pageTranslationMode: "manual",
-      bidirectional: true,
-      pairLanguage: "日本語"
+      bidirectional: false,
+      sourceLanguage: "自动检测",
+      targetLanguage: "日本語"
     });
     expect(
       forWebsite(settings, "https://other.example.com").targetLanguage

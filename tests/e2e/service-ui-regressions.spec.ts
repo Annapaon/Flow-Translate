@@ -37,6 +37,54 @@ test("prompts remain editable with every machine service selected", async ({
   }
 });
 
+test("prompt styles can be added, generated with a selected LLM and deleted", async ({ extension: e }) => {
+  await e.configure("click");
+  e.autoFinish(20);
+  const options = await e.options();
+  await options.getByRole("button", { name: /Prompts by scene/ }).click();
+  await expect(options.locator(".prompt-item")).toHaveCount(4);
+  await options.getByRole("button", { name: /Add style/ }).click();
+  const editor = options.getByRole("dialog", { name: "Add prompt style" });
+  await editor.getByRole("textbox", { name: "Style name", exact: true }).fill("Game localization");
+  await editor.getByRole("textbox", { name: "Description", exact: true }).fill("Preserve character voice");
+  await editor.getByRole("button", { name: "Generate with LLM", exact: true }).click();
+  await editor.getByRole("button", { name: "Generate prompt", exact: true }).click();
+  await expect(editor.getByRole("textbox", { name: "Prompt content", exact: true })).toHaveValue("译文完成");
+  await editor.getByRole("button", { name: "Save prompt", exact: true }).click();
+  await expect(options.locator(".prompt-item")).toHaveCount(5);
+  await expect.poll(() => options.evaluate(async () => {
+    const settings = (await (globalThis as any).chrome.storage.local.get("translatorSettings")).translatorSettings;
+    const style = settings.promptStyles.find((item: any) => item.name === "Game localization");
+    return style && settings.scenePrompts[style.id];
+  })).toBe("译文完成");
+  const custom = options.locator(".prompt-item").last();
+  await expect(custom.getByRole("textbox")).toHaveCount(0);
+  await custom.getByRole("button", { name: "Edit", exact: true }).click();
+  const edit = options.getByRole("dialog", { name: "Edit prompt style" });
+  await edit.getByRole("textbox", { name: "Prompt content", exact: true }).fill("Manual prompt");
+  await edit.getByRole("button", { name: "Save prompt", exact: true }).click();
+  await expect(custom.locator(".prompt-preview")).toHaveText("Manual prompt");
+  options.once("dialog", dialog => dialog.accept());
+  await custom.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(options.locator(".prompt-item")).toHaveCount(4);
+});
+
+test("only page translation exposes shortcut settings and only selection exposes bidirectional mode", async ({ extension: e }) => {
+  await e.configure("click");
+  const options = await e.options();
+  await expect(options.getByRole("switch", { name: "Assign services by feature" })).toHaveCount(0);
+  await options.getByRole("button", { name: /Languages and behavior/ }).click();
+  await expect(options.locator(".feature-shortcut")).toHaveCount(0);
+  await expect(options.getByRole("switch", { name: "Bidirectional translation" })).toBeVisible();
+  await options.getByRole("button", { name: /Page mode and appearance/ }).click();
+  await expect(options.locator(".feature-shortcut")).toContainText("Page translation");
+  await expect(options.getByRole("switch", { name: "Bidirectional translation" })).toHaveCount(0);
+  await options.getByRole("button", { name: /Side panel settings/ }).click();
+  await expect(options.locator(".feature-shortcut")).toHaveCount(0);
+  await expect(options.getByRole("switch", { name: "Bidirectional translation" })).toHaveCount(0);
+  await expect(options.getByRole("button", { name: "Set shortcut", exact: true })).toHaveCount(0);
+});
+
 test("popup machine services show only profile names and Bing replaces the old built-in name", async ({
   extension: e
 }) => {
@@ -84,7 +132,7 @@ test("popup machine services show only profile names and Bing replaces the old b
   const popup = await e.options();
   await popup.goto(popup.url().replace("options.html", "popup.html"));
   const service = popup.getByRole("combobox", {
-    name: "翻译服务",
+    name: "划词翻译服务",
     exact: true
   });
   for (const [id, label] of [
@@ -111,7 +159,7 @@ test("popup machine services show only profile names and Bing replaces the old b
   ).toHaveText("必应翻译");
 });
 
-test("sidepanel changes the default or only its feature binding and sends requests to the selected model", async ({
+test("sidepanel changes only its feature binding and sends requests to the selected model", async ({
   extension: e
 }) => {
   await e.configure("click");
@@ -148,7 +196,8 @@ test("sidepanel changes the default or only its feature binding and sends reques
     );
   await model.selectOption("second");
   await expect(model).toBeEnabled();
-  await expect.poll(async () => (await read()).activeModelId).toBe("second");
+  await expect.poll(async () => (await read()).featureModels.longText).toBe("second");
+  expect((await read()).activeModelId).toBe("default-model");
   await panel
     .locator(".source textarea")
     .fill("Use the selected model for this long text.");
@@ -168,7 +217,7 @@ test("sidepanel changes the default or only its feature binding and sends reques
   await expect
     .poll(async () => (await read()).featureModels.longText)
     .toBe("third");
-  expect((await read()).activeModelId).toBe("second");
+  expect((await read()).activeModelId).toBe("default-model");
   expect((await read()).featureModels).toEqual({
     selection: "third",
     page: "second",
@@ -189,7 +238,7 @@ test("sidepanel changes the default or only its feature binding and sends reques
   await expect.poll(async () => (await read()).featureModels.longText).toBe("");
   await panel.getByRole("button", { name: "Translate", exact: true }).click();
   await expect.poll(() => e.requests.length).toBe(3);
-  expect(e.requests[2]!.model).toBe("second");
+  expect(e.requests[2]!.model).toBe("test-model");
   e.finish(2);
 });
 
@@ -238,7 +287,7 @@ test("machine defaults do not lock saved LLM preferences and export controls sta
       return [s.featurePreferences.selection.smartOutput, s.featurePreferences.selection.outputMode, s.featurePreferences.selection.translationScene];
     })).toEqual([true, "grammar", "academic"]);
     await options.getByRole("button", { name: /Page mode and appearance/ }).click();
-    await expect(options.getByRole("button", { name: "Change shortcut", exact: true })).toBeVisible();
+    await expect(options.getByRole("button", { name: "Set shortcut", exact: true })).toBeVisible();
     await options.reload();
     await options.getByRole("button", { name: /Languages and behavior/ }).click();
     await expect(options.getByRole("switch", { name: "Smart output", exact: true })).toBeHidden();
@@ -280,7 +329,7 @@ test("capability visibility follows feature bindings and preserves hidden prefer
   await expect(options.locator(".feature-group .standalone-notice")).toHaveCount(0);
   const popup = await e.options();
   await popup.goto(popup.url().replace("options.html", "popup.html"));
-  await expect(popup.getByRole("combobox", { name: "Scene", exact: true })).toHaveValue("academic");
+  await expect(popup.getByRole("combobox", { name: "Scene", exact: true })).toHaveCount(0);
   const side = await e.options();
   await side.goto(side.url().replace("options.html", "sidepanel.html"));
   await expect(side.getByRole("combobox", { name: "Scene", exact: true })).toHaveCount(0);
@@ -297,7 +346,7 @@ test("capability visibility follows feature bindings and preserves hidden prefer
   await expect(options.getByRole("combobox", { name: "Reasoning", exact: true })).toHaveCount(0);
   await e.settings({ featureModels: { selection: "", longText: "machine", page: "machine" } });
   await popup.reload();
-  await expect(popup.getByRole("combobox", { name: "Scene", exact: true })).toHaveValue("academic");
+  await expect(popup.getByRole("combobox", { name: "Scene", exact: true })).toHaveCount(0);
   await options.reload();
   await options.getByRole("button", { name: /Languages and behavior/ }).click();
   await expect(options.getByRole("switch", { name: "Smart output", exact: true })).toBeChecked();

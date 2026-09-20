@@ -54,7 +54,7 @@
 | 代码规范 | ESLint、Prettier | 统一代码风格 |
 | 自动化 | GitHub Actions | 测试、构建和发布安装包 |
 
-一期实际落地（2026-09-08）：UI 使用 React 状态和原生 CSS，配置导入使用 Zod；未使用的 Zustand、React Hook Form、Tailwind 依赖已移除。Vitest 和 Playwright 已落地，整合验证见 [一期核对报告](../reviews/PHASE1_REVIEW.md)。
+一期实际落地（2026-09-08）：UI 使用 React 状态和原生 CSS，配置导入使用 Zod；未使用的 Zustand、React Hook Form、Tailwind 依赖已移除。Vitest 和 Playwright 已落地，整合验证见 [一期核对报告](../archive/reviews/PHASE1_REVIEW.md)。
 
 ## 4. 系统架构
 

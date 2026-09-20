@@ -8,7 +8,7 @@
 - `src/shared/`：跨入口使用的设置、权限、存储、类型和公共组件。
 - `src/public/`：直接复制到扩展安装包的资源，不放设计源文件或私有配置。
 - `tests/unit/`、`tests/e2e/`：单元测试和浏览器测试；公共单元测试初始化保留在 `tests/setup.ts`。
-- `docs/plans/`、`docs/releases/`、`docs/reviews/`、`docs/publishing/`：规划、版本记录、检查报告和商店材料；`docs/assets/` 保存设计源素材。
+- `docs/design/`、`docs/releases/`、`docs/archive/`、`docs/publishing/`：规划、版本记录、检查报告和商店材料；`docs/assets/` 保存设计源素材。
 - `scripts/`：构建辅助脚本；根目录保留包管理、构建、测试和风格配置。
 
 WXT 通过 `srcDir: "src"` 和 `publicDir: "src/public"` 定位源码与资源。产物位置仍是 `.output/chrome-mv3/`，已安装开发版本的加载路径无需修改。新增单元测试放在 `tests/unit/`；修改目录时需同步相对导入、配置和文档链接。目录整理保留现有业务模块划分，未拆分页面内部实现。
@@ -88,7 +88,7 @@ ESLint 使用 JS/TypeScript 推荐规则与 React Hooks 调用规则；显式 `a
 
 新增 `src/shared/reading-settings.ts` 与 `ReadingPreferences.tsx` 管理样式、网站规则和设置入口；`src/content/page-translation/region.ts` 管理区域选择；`src/core/translation/page-preflight.ts` 管理本地语言预判；`src/core/providers/diagnostics.ts` 管理连接诊断。“换一种表达”相关实现已于 1.3.20 移除。
 
-新增回归见 `tests/unit/reading-features.test.ts` 和 `tests/e2e/reading-features.spec.ts`。本轮 98 项单元测试、50 项浏览器测试通过，ESLint 仍有 7 条存量警告；版本与发布包见 [1.3.10 更新说明](releases/RELEASE_NOTES_1.3.10.md)。
+新增回归见 `tests/unit/reading-features.test.ts` 和 `tests/e2e/reading-features.spec.ts`。本轮 98 项单元测试、50 项浏览器测试通过，ESLint 仍有 7 条存量警告；版本与发布包见 [1.3.10 更新说明](archive/releases/RELEASE_NOTES_1.3.10.md)。
 
 ## 1.3.21 配置事务与验收工具
 

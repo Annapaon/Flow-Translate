@@ -165,6 +165,7 @@ function isCurrentSiteBlocked(settings: PublicTranslatorSettings): boolean {
 
 function App() {
   const [actualService, setActualService] = useState("");
+  const [actualModel, setActualModel] = useState("");
   const [showReasoning, setShowReasoning] = useState(false);
   const [actualTarget, setActualTarget] = useState("");
   const [uncertainDirection, setUncertainDirection] = useState(false);
@@ -232,6 +233,8 @@ function App() {
     if (sitePaused || document.documentElement.hasAttribute("data-flow-selecting")) return;
     cancelCurrent();
     setActualTarget("");
+    setActualService("");
+    setActualModel("");
     setSelection(snapshot);
     setManualPosition(null);
     setOpen(true);
@@ -246,12 +249,20 @@ function App() {
 
     const requestId = crypto.randomUUID();
     requestIdRef.current = requestId;
-    const port = browser.runtime.connect({ name: "translation-stream" });
+    let port: ReturnType<typeof browser.runtime.connect>;
+    try {
+      port = browser.runtime.connect({ name: "selection-translation" });
+    } catch {
+      requestIdRef.current = null;
+      setStatus("error");
+      setError(settings.uiLanguage === "en" ? "The extension was updated. Refresh this page and try again." : "扩展已更新，请刷新当前网页后重试");
+      return;
+    }
     let settled = false;
     portRef.current = port;
     port.onMessage.addListener((message: ServerMessage) => {
       if (message.requestId !== requestId || requestIdRef.current !== requestId) return;
-      if (message.type === "start") { setActualTarget(message.targetLanguage ?? ""); setUncertainDirection(Boolean(message.uncertain)); setShowReasoning(Boolean(message.enableThinking)); setActualService(message.serviceName ?? ""); }
+      if (message.type === "start") { setActualTarget(message.targetLanguage ?? ""); setUncertainDirection(Boolean(message.uncertain)); setShowReasoning(Boolean(message.enableThinking)); setActualService(message.serviceName ?? ""); setActualModel(message.modelName ?? ""); }
       if (message.type === "retry") {
         setStatus("loading");
         setReconnecting(true);
@@ -290,13 +301,22 @@ function App() {
         setError(settings.uiLanguage === "en" ? "The translation service disconnected. Refresh the page and try again." : "与翻译后台的连接已断开，请刷新页面后重试");
       }
     });
-    port.postMessage({
-      type: "translate",
-      requestId,
-      text: snapshot.text, refresh, target, langHint: document.getSelection()?.anchorNode?.parentElement?.closest("[lang]")?.getAttribute("lang") ?? document.documentElement.lang,
-      pageTitle: document.title,
-      pageUrl: location.href
-    });
+    try {
+      port.postMessage({
+        type: "translate",
+        requestId,
+        text: snapshot.text, refresh, target, langHint: document.getSelection()?.anchorNode?.parentElement?.closest("[lang]")?.getAttribute("lang") ?? document.documentElement.lang,
+        pageTitle: document.title,
+        pageUrl: location.href
+      });
+    } catch {
+      settled = true;
+      requestIdRef.current = null;
+      portRef.current = null;
+      try { port.disconnect(); } catch {}
+      setStatus("error");
+      setError(settings.uiLanguage === "en" ? "The extension was updated. Refresh this page and try again." : "扩展已更新，请刷新当前网页后重试");
+    }
   }
 
   function startDragging(event: React.PointerEvent<HTMLElement>) {
@@ -551,7 +571,7 @@ function App() {
         <footer className="foot">
           <div><button className="link" disabled={status === "loading" || status === "streaming"} onClick={() => translate(selection, true)}>{t("重新翻译", "Translate again")}</button>
           {settings.bidirectional && <button className="link" onClick={() => translate(selection, true, actualTarget === settings.pairLanguage ? (settings.pairSourceLanguage || "简体中文") : settings.pairLanguage)}>{uncertainDirection ? t("确认/切换方向", "Confirm / switch direction") : t("切换方向", "Switch direction")}</button>}</div>
-          <span>{selection.text.length} {t("字符", "chars")} · {actualService || settings.model}{wasCached ? t(" · 已缓存", " · cached") : ""}</span>
+          <span>{selection.text.length} {t("字符", "chars")} · {[actualService || settings.selectionService?.name, actualModel || (!actualService ? settings.selectionService?.model : "")].filter(Boolean).join(" · ") || t("翻译服务", "Translation service")}{wasCached ? t(" · 已缓存", " · cached") : ""}</span>
         </footer>
       </section>
     )}

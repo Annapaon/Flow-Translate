@@ -1,6 +1,5 @@
 import { ModelCards } from "./components/ModelCards";
 import { PromptSettings } from "./components/PromptSettings";
-import { ShortcutStatus } from "./components/ShortcutStatus";
 import { FeatureTranslationSettings } from "./components/FeatureTranslationSettings";
 import { usePrivacyNotice, confirmPrivacyConsent, resetPrivacyNotices } from "../../shared/privacy-notices";
 import { requestApiPermissions } from "../../shared/api-permissions";
@@ -10,7 +9,7 @@ import { isMachine } from "../../core/services/capabilities";
 import React, { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { createModelProfile, getSettings, saveSettings, saveSettingsChanges } from "../../shared/settings";
-import { DEFAULT_SCENE_PROMPTS, DEFAULT_SETTINGS, type KeyStorageMode, type ModelProfile, type ModelUsageEntry, type ProviderType, type TestConnectionResponse, type TranslationHistoryEntry, type TranslationScene, type TranslatorSettings } from "../../shared/types";
+import { DEFAULT_SETTINGS, type KeyStorageMode, type ModelProfile, type ModelUsageEntry, type ProviderType, type TestConnectionResponse, type TranslationHistoryEntry, type TranslatorSettings } from "../../shared/types";
 import { providerRequiresApiKey, sanitizeHeaders, validateApiUrl, validateImportedSettings } from "../../shared/security";
 import { findProviderPreset, PROVIDER_PRESETS, providerDisplayName } from "../../core/providers/registry";
 import "./style.css";
@@ -239,25 +238,6 @@ function App() {
     setForm(next);
     autoSave(next, t("设置已保存", "Settings saved"));
   }
-  function updateScenePrompt(scene: TranslationScene, value: string) {
-    const next = { ...form, scenePrompts: { ...form.scenePrompts, [scene]: value } };
-    setForm(next);
-    autoSave(next, t("提示词已自动保存。", "Prompt saved automatically."));
-  }
-  function restoreScenePrompt(scene: TranslationScene) {
-    updateScenePrompt(scene, DEFAULT_SCENE_PROMPTS[scene]);
-    announce(t("该场景已恢复默认提示词。", "The default prompt was restored for this scene."), "success");
-  }
-  function restoreAllScenePrompts() {
-    if (!window.confirm(t("确定要将全部场景恢复为默认提示词吗？", "Restore the default prompts for every scene?"))) return;
-    const next = { ...form, scenePrompts: { ...DEFAULT_SCENE_PROMPTS } };
-    setForm(next);
-    autoSave(next, t("全部场景已恢复默认提示词。", "All default scene prompts were restored."));
-  }
-  async function copyScenePrompt(scene: TranslationScene) {
-    await navigator.clipboard.writeText(form.scenePrompts[scene]);
-    announce(t("提示词已复制。", "Prompt copied."), "success");
-  }
   function addProfile() {
     const profile = createModelProfile();
     setEditingProfile(profile);
@@ -445,7 +425,7 @@ function App() {
       .some((value) => value?.toLowerCase().includes(normalizedHistoryQuery));
   });
   return <main className="page">
-    <header className="hero"><div className="logo">译</div><div><h1>{t("流译助手设置", "Flow Translate Settings")}</h1><p>{t("管理使用偏好和大模型服务。", "Manage preferences and model providers.")}</p></div></header>
+    <header className="hero"><img className="logo" src="/icon/128.png" width="56" height="56" alt="" aria-hidden="true" /><div><h1>{t("流译助手设置", "Flow Translate Settings")}</h1><p>{t("管理使用偏好和大模型服务。", "Manage preferences and model providers.")}</p></div></header>
     <div className="settings-shell">
       <aside className="settings-nav" aria-label={t("设置菜单", "Settings menu")}>
         <button className={activeSection === "basic" ? "selected" : ""} onClick={() => selectSection("basic")}><span>01</span><div><strong>{t("基本信息", "General")}</strong><small>{t("界面、隐私与网站范围", "Interface, privacy, and sites")}</small></div></button>
@@ -463,16 +443,10 @@ function App() {
         <div className="grid">
           <label>{t("界面语言", "Interface language")}<select value={form.uiLanguage} onChange={(event) => update("uiLanguage", event.target.value as TranslatorSettings["uiLanguage"])}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>
         </div>
-        <ShortcutStatus en={en} />
         {privacyNotice.accepted === false && <div className="privacy-disclosure"><strong>{t("数据处理说明", "Data handling notice")}</strong><p>{t("你选择、输入或通过全文翻译提交的文字会发送到当前服务；主动开启自动全文模式后，进入符合规则的页面时会发送正文；页面标题和地址仅在开启历史时保存在本地。开发者不接收这些数据。请勿翻译密码、支付、医疗等敏感信息。", "Selected or entered text is sent to your configured model service. Page titles and URLs are stored locally only when history is enabled. The developer does not receive this data. Do not translate passwords, payment, health, or other sensitive information.")}</p><button type="button" disabled={confirmingPrivacy} onClick={confirmPrivacy}>{t("了解并同意", "Understand and agree")}</button></div>}
         <div className="toggle-grid">
           <label className="toggle"><input type="checkbox" checked={form.enableHistory} onChange={(event) => update("enableHistory", event.target.checked)} /><span><strong>{t("保存翻译历史", "Save translation history")}</strong><small>{t("最多保存最近 100 条", "Keep up to 100 recent entries")}</small></span></label>
           <label className="toggle"><input type="checkbox" checked={form.enableCache} onChange={(event) => update("enableCache", event.target.checked)} /><span><strong>{t("启用翻译缓存", "Enable translation cache")}</strong><small>{t("相同请求 7 天内复用", "Reuse identical requests for 7 days")}</small></span></label>
-        </div>
-        <div className="model-routing compact-routing">
-          <Toggle label={t("按翻译功能分别设置服务", "Assign services by feature")} checked={form.separateModels} onChange={value => update("separateModels", value)} />
-          <p className="ft-help">{form.separateModels ? t("三个翻译功能可在各自设置页选择不同服务；未指定时跟随默认服务。", "Each translation feature can choose its own service; unassigned features follow the default.") : t("三个翻译功能共用模型服务页面设置的默认服务。", "All three translation features use the default from Model services.")}</p>
-          <p className="model-routing-default">{t("当前默认服务", "Current default service")} · <strong>{form.modelProfiles.find(profile => profile.id === form.activeModelId)?.name}</strong></p>
         </div>
         <label>{t("网站访问模式", "Site access mode")}<select value={form.siteAccessMode} onChange={(event) => update("siteAccessMode", event.target.value as TranslatorSettings["siteAccessMode"])}><option value="blacklist">{t("除黑名单外全部启用", "Enable except blocked sites")}</option><option value="whitelist">{t("仅在白名单网站启用", "Enable only on allowed sites")}</option></select></label>
         {form.siteAccessMode === "blacklist"
@@ -486,7 +460,7 @@ function App() {
 
       {activeSection === "longText" && <FeatureTranslationSettings feature="longText" step="04" form={form} patch={patchForm} />}
 
-      {activeSection === "prompts" && <PromptSettings form={form} updateScenePrompt={updateScenePrompt} copyScenePrompt={copyScenePrompt} restoreScenePrompt={restoreScenePrompt} restoreAllScenePrompts={restoreAllScenePrompts} update={update} />}
+      {activeSection === "prompts" && <PromptSettings form={form} patch={patchForm} />}
 
       {activeSection === "models" && <section className="card">
         <div className="section-head model-head"><div><span className="step">06</span><h2>{t("翻译服务配置", "Translation services")}</h2><p>{t("添加和维护可用服务，并设置默认服务；各功能的绑定在对应翻译设置页完成。", "Add and maintain services and choose the default; assign them from each translation feature page.")}</p></div><button type="button" className="add" onClick={addProfile}>＋ {t("添加服务", "Add service")}</button></div>

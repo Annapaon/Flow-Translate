@@ -4,10 +4,13 @@ import type { FeatureTranslationPreferences, TranslationFeature, TranslatorSetti
 export function settingsForFeature(settings: TranslatorSettings, feature: TranslationFeature, override?: string): TranslatorSettings {
   const preferences = settings.featurePreferences?.[feature];
   const effective = preferences ? { ...settings, ...preferences } : settings;
-  const id = override || (effective.separateModels ? effective.featureModels?.[feature] : "");
-  const profile = effective.modelProfiles.find(p => p.id === id && p.enabled);
-  if (override && !profile) throw new Error("翻译服务不可用 / Service unavailable");
-  if (!profile) return effective;
+  const id = override || effective.featureModels?.[feature] || effective.activeModelId;
+  const profile = effective.modelProfiles.find(p => p.id === id && p.enabled)
+    ?? (!override ? effective.modelProfiles.find(p => p.enabled) : undefined);
+  if (!profile) throw new Error("翻译服务不可用 / Service unavailable");
+  // Always hydrate request settings from the selected profile. The top-level
+  // provider fields only exist for old exports and may briefly be stale after
+  // an import, default-model change, or session-key restoration.
   return { ...effective, activeModelId: profile.id, provider: profile.provider,
     apiBaseUrl: profile.apiBaseUrl, apiKey: profile.apiKey, model: profile.model,
     temperature: profile.temperature, timeoutMs: profile.timeoutMs,
@@ -24,10 +27,10 @@ export function pageSettingsFingerprint(settings: TranslatorSettings): string {
   return JSON.stringify({ ...rest, pagePreferences: featurePreferences?.page });
 }
 
-/** A feature-page choice updates its binding, or the shared default in unified mode. */
+/** A feature-page choice updates only that feature; an empty id follows the default. */
 export function serviceSelectionPatch(settings: TranslatorSettings, feature: TranslationFeature, id: string): Partial<TranslatorSettings> {
   if (id && !settings.modelProfiles.some(profile => profile.id === id && profile.enabled)) throw new Error("翻译服务不可用 / Service unavailable");
-  return settings.separateModels ? { featureModels: { ...settings.featureModels, [feature]: id } } : { activeModelId: id || settings.activeModelId };
+  return { featureModels: { ...settings.featureModels, [feature]: id } };
 }
 
 export function featurePreferencesPatch(

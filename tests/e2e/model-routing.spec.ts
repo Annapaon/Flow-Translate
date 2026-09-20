@@ -11,28 +11,19 @@ test("feature assignments persist, route requests and keep active page sessions 
       ...["selection-model", "page-model", "long-model"].map(id => ({ ...original, id, name: id, model: id }))] } });
   });
   await options.reload();
-  await options.getByRole("button", { name: /Interface, privacy/ }).click();
-  const toggle = options.getByRole("switch", { name: "Assign services by feature" });
-  await expect(toggle).not.toBeChecked();
-  await toggle.check();
   await options.getByRole("button", { name: /Languages and behavior/ }).click();
-  await options.getByRole("combobox", { name: "Translation service", exact: true }).selectOption("selection-model");
+  await options.getByRole("combobox", { name: "Selection translation service", exact: true }).selectOption("selection-model");
   await options.getByRole("button", { name: /Page mode and appearance/ }).click();
-  await options.getByRole("combobox", { name: "Translation service", exact: true }).selectOption("page-model");
+  await options.getByRole("combobox", { name: "Page translation service", exact: true }).selectOption("page-model");
   await options.getByRole("button", { name: /Side panel settings/ }).click();
-  await options.getByRole("combobox", { name: "Translation service", exact: true }).selectOption("long-model");
+  await options.getByRole("combobox", { name: "Long text translation service", exact: true }).selectOption("long-model");
   await expect.poll(() => options.evaluate(async () => ((await (globalThis as any).chrome.storage.local.get("translatorSettings")).translatorSettings.featureModels.longText))).toBe("long-model");
   await options.locator(".feature-binding").screenshot({ path: ".output/ui-review/model-routing.png" });
-  await options.getByRole("button", { name: /Interface, privacy/ }).click();
-  await toggle.uncheck();
-  await toggle.check();
   await options.getByRole("button", { name: /Page mode and appearance/ }).click();
-  await expect(options.getByRole("combobox", { name: "Translation service", exact: true })).toHaveValue("page-model");
+  await expect(options.getByRole("combobox", { name: "Page translation service", exact: true })).toHaveValue("page-model");
   await options.reload();
-  await options.getByRole("button", { name: /Interface, privacy/ }).click();
-  await expect(toggle).toBeChecked();
   await options.getByRole("button", { name: /Side panel settings/ }).click();
-  await expect(options.getByRole("combobox", { name: "Translation service", exact: true })).toHaveValue("long-model");
+  await expect(options.getByRole("combobox", { name: "Long text translation service", exact: true })).toHaveValue("long-model");
 
   await select(e.page, "#first");
   await e.page.getByRole("button", { name: "Translate selection", exact: true }).click();
@@ -40,6 +31,7 @@ test("feature assignments persist, route requests and keep active page sessions 
   expect(e.requests[0]!.model).toBe("selection-model");
   e.finish(0);
   await expect(e.page.locator(".result")).toContainText("完成");
+  await expect(e.page.locator(".foot")).toContainText("selection-model · selection-model");
   await expect(e.page.locator(".card select")).toHaveCount(0);
   await e.page.locator("#outside").click();
 
@@ -47,7 +39,7 @@ test("feature assignments persist, route requests and keep active page sessions 
   await expect.poll(() => e.requests.length).toBe(2);
   expect(e.requests[1]!.model).toBe("page-model");
   await options.getByRole("button", { name: /Page mode and appearance/ }).click();
-  await options.getByRole("combobox", { name: "Translation service", exact: true }).selectOption("long-model");
+  await options.getByRole("combobox", { name: "Page translation service", exact: true }).selectOption("long-model");
   await expect.poll(() => options.evaluate(async () => ((await (globalThis as any).chrome.storage.local.get("translatorSettings")).translatorSettings.featureModels.page))).toBe("long-model");
   await e.page.waitForTimeout(200);
   expect((await e.pageStatus()).state).toBe("running");
@@ -79,11 +71,11 @@ test("feature assignments persist, route requests and keep active page sessions 
   await expect(card("long-model").locator(".usage-stats")).toContainText("2API attempts");
   await card("long-model").locator(".switch").click();
   await options.getByRole("button", { name: /Page mode and appearance/ }).click();
-  await expect(options.getByRole("combobox", { name: "Translation service", exact: true })).toHaveValue("");
+  await expect(options.getByRole("combobox", { name: "Page translation service", exact: true })).toHaveValue("");
   await options.getByRole("button", { name: /Side panel settings/ }).click();
-  await expect(options.getByRole("combobox", { name: "Translation service", exact: true })).toHaveValue("");
-  await options.getByRole("button", { name: /Interface, privacy/ }).click();
-  await toggle.uncheck();
+  await expect(options.getByRole("combobox", { name: "Long text translation service", exact: true })).toHaveValue("");
+  await options.getByRole("button", { name: /Languages and behavior/ }).click();
+  await options.getByRole("combobox", { name: "Selection translation service", exact: true }).selectOption("");
   await select(e.page, "#second");
   await e.page.getByRole("button", { name: "Translate selection", exact: true }).click();
   await expect.poll(() => e.requests.length).toBe(5);
@@ -114,7 +106,7 @@ test("model cards set and persist the default without changing feature assignmen
   await expect.poll(() => options.evaluate(async () => (await (globalThis as any).chrome.storage.local.get("translatorSettings")).translatorSettings.activeModelId)).toBe("new-default");
   await next.screenshot({ path: ".output/ui-review/default-model-card.png" });
   await options.getByRole("button", { name: /Page mode and appearance/ }).click();
-  await expect(options.getByRole("combobox", { name: "Translation service", exact: true })).toHaveValue("default-model");
+  await expect(options.getByRole("combobox", { name: "Page translation service", exact: true })).toHaveValue("default-model");
   await options.reload();
   await options.getByRole("button", { name: /Models/ }).click();
   await expect(next.locator(".default-badge")).toHaveText("Default");
@@ -125,7 +117,7 @@ test("model cards set and persist the default without changing feature assignmen
   e.finish(0);
 });
 
-test("popup service choices update feature bindings and route actual selection and page requests", async ({ extension: e }) => {
+test("popup selection service updates only selection routing and omits page service configuration", async ({ extension: e }) => {
   await e.configure("click");
   const popup = await e.options();
   await popup.evaluate(async () => {
@@ -135,10 +127,14 @@ test("popup service choices update feature bindings and route actual selection a
     await api.storage.local.set({ translatorSettings: { ...s, separateModels: true, featureModels: { selection: "old", page: "old", longText: "old" }, modelProfiles: [base, ...["old", "chosen"].map(id => ({ ...base, id, name: id, model: id }))] } });
   });
   await popup.goto(popup.url().replace("options.html", "popup.html"));
-  const choice = popup.getByRole("combobox", { name: "Translation service", exact: true });
-  const pageChoice = popup.getByRole("combobox", { name: "Page translation service", exact: true });
+  await popup.setViewportSize({ width: 350, height: 600 });
+  const consent = popup.getByRole("button", { name: "Understand and agree", exact: true });
+  if (await consent.isVisible()) await consent.click();
+  const choice = popup.getByRole("combobox", { name: "Selection translation service", exact: true });
   await expect(choice).toHaveValue("old");
-  await expect(pageChoice).toHaveValue("old");
+  await expect(popup.getByRole("combobox", { name: "Page translation service", exact: true })).toHaveCount(0);
+  await expect(popup.getByRole("combobox", { name: "Scene", exact: true })).toHaveCount(0);
+  expect(await popup.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(600);
   await choice.selectOption("chosen");
   await expect(choice).toBeEnabled();
   const stored = () => popup.evaluate(async () => (await (globalThis as any).chrome.storage.local.get("translatorSettings")).translatorSettings);
@@ -150,32 +146,12 @@ test("popup service choices update feature bindings and route actual selection a
   e.finish(0);
   await expect(e.page.locator(".result")).toContainText("完成");
   await e.page.locator("#outside").click();
-  await pageChoice.selectOption("chosen");
-  await expect(pageChoice).toBeEnabled();
-  await expect.poll(async () => (await stored()).featureModels).toEqual({ selection: "chosen", page: "chosen", longText: "old" });
   await e.control("start");
   await expect.poll(() => e.requests.length).toBe(2);
-  expect(e.requests[1]!.model).toBe("chosen");
-  await pageChoice.selectOption("");
-  await expect(pageChoice).toBeEnabled();
-  expect(e.requests[1]!.aborted).toBe(false);
+  expect(e.requests[1]!.model).toBe("old");
   e.finish(1);
   await expect.poll(async () => (await e.pageStatus()).state).toBe("completed");
-  await e.control("restore");
-  await e.control("start");
-  await expect.poll(() => e.requests.length).toBe(3);
-  expect(e.requests[2]!.model).toBe("test-model");
-  e.finish(2);
-  await expect.poll(async () => (await e.pageStatus()).state).toBe("completed");
   await popup.reload();
   await expect(choice).toHaveValue("chosen");
-  await expect(pageChoice).toHaveValue("");
-  await e.settings({ separateModels: false });
-  await popup.reload();
-  await choice.selectOption("old");
-  await expect(pageChoice).toHaveValue("old");
-  await pageChoice.selectOption("chosen");
-  await expect(choice).toHaveValue("chosen");
-  await expect.poll(async () => (await stored()).activeModelId).toBe("chosen");
-  expect((await stored()).featureModels.longText).toBe("old");
+  expect((await stored()).featureModels).toEqual({ selection: "chosen", page: "old", longText: "old" });
 });

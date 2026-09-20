@@ -1,5 +1,4 @@
 import { pageStateLabel } from "../../shared/page-state";
-import { FeatureServiceSelect } from "../../shared/FeatureServiceSelect";
 import { forWebsite, websiteRuleFor } from "../../shared/reading-settings";
 import { PageTranslationPreferences } from "../../shared/PageTranslationPreferences";
 import { settingsForFeature } from "../../core/translation/model-routing";
@@ -11,10 +10,9 @@ function ControlIcon({ kind }: { kind: "translate" | "pause" | "disable" }) {
     {kind === "translate" ? <><path d="M3 5h12M9 3v2M6 5c0 5 4 9 8 11M12 5c0 5-4 9-9 12M14 21l4-10 4 10M16 17h4" /></> : kind === "pause" ? <><path d="M8 5v14M16 5v14" /></> : <><circle cx="12" cy="12" r="9" /><path d="m6 6 12 12" /></>}
   </svg>;
 }
-export function PageControls({ settings, update, saving, onServiceChange }: {
+export function PageControls({ settings, update, saving }: {
   settings: TranslatorSettings;
   saving: boolean;
-  onServiceChange: (id: string) => void;
   update: (patch: Partial<TranslatorSettings>) => void;
 }) {
   const en = settings.uiLanguage === "en";
@@ -33,10 +31,6 @@ export function PageControls({ settings, update, saving, onServiceChange }: {
           await sendCommand("start");
           window.close();
         }} />
-      {settings.pageTranslationEnabled && <>
-        <FeatureServiceSelect settings={settings} feature="page" label={t("全文翻译服务", "Page translation service")} disabled={saving} onChange={onServiceChange} />
-        <p className="ft-help">{settings.separateModels ? t("切换仅修改全文和指定区域翻译的服务。", "Switching changes only page and region translation services.") : t("所有翻译功能共用此默认服务。", "All translation features share this default service.")}{status && !["idle", "skipped-target"].includes(status.state) && t("当前任务保留原服务；恢复原文后重新翻译将使用新服务。", "The current task keeps its original service. Restore originals and start again to use the new service.")}</p>
-      </>}
       {settings.pageTranslationEnabled && <div className="page-actions">
         <button disabled={saving || !tab || !settings.privacyConsentAccepted || site.paused || site.permanent || (status && !["idle", "skipped-target"].includes(status.state))} onClick={async () => {
           try { await sendCommand("region"); window.close(); }

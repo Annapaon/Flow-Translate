@@ -6,7 +6,8 @@ import { LanguageDirection, Toggle } from "../../../shared/LanguageDirection";
 import { PageTranslationPreferences } from "../../../shared/PageTranslationPreferences";
 import { ReadingPreferences } from "../../../shared/ReadingPreferences";
 import { TranslationPreferences } from "../../../shared/TranslationPreferences";
-import { TRANSLATION_SCENES, type FeatureTranslationPreferences, type TranslationFeature, type TranslatorSettings } from "../../../shared/types";
+import { type FeatureTranslationPreferences, type TranslationFeature, type TranslatorSettings } from "../../../shared/types";
+import { ShortcutStatus } from "./ShortcutStatus";
 
 const TITLES: Record<TranslationFeature, [string, string, string, string]> = {
   selection: ["划词翻译", "Selection translation", "设置划词时使用的服务、提示词和交互行为。", "Choose the service, prompt, and interaction used for selections."],
@@ -26,20 +27,23 @@ export function FeatureTranslationSettings({ feature, step, form, patch }: {
   const effective = settingsForFeature(form, feature);
   const rich = capabilitiesForFeature(form, feature).richOutput;
   const updatePreferences = (changes: Partial<FeatureTranslationPreferences>) => patch(featurePreferencesPatch(form, feature, changes));
-  const sceneNames = { general: "General", technical: "Technical", academic: "Academic", business: "Business" } as const;
+  const serviceLabels: Record<TranslationFeature, [string, string]> = {
+    selection: ["划词翻译服务", "Selection translation service"],
+    page: ["全文翻译服务", "Page translation service"],
+    longText: ["长文本翻译服务", "Long text translation service"]
+  };
 
   return <section className="card feature-settings">
     <div className="section-head"><div><span className="step">{step}</span><h2>{t(copy[0], copy[1])}</h2><p>{t(copy[2], copy[3])}</p></div></div>
     <div className="feature-binding">
-      <FeatureServiceSelect settings={form} feature={feature} label={t("翻译服务", "Translation service")} onChange={id => patch(serviceSelectionPatch(form, feature, id))} />
-      <p className="ft-help">{form.separateModels
-        ? t("此处只修改当前翻译功能的服务；留空时跟随默认服务。", "This changes only this feature; an empty assignment follows the default service.")
-        : t("当前所有翻译功能共用默认服务；这里的修改会同步到其他功能。", "All features currently share the default service; changing it here changes the shared default.")}</p>
+      <FeatureServiceSelect settings={form} feature={feature} label={t(...serviceLabels[feature])} onChange={id => patch(serviceSelectionPatch(form, feature, id))} />
+      <p className="ft-help">{t("此处只修改当前翻译功能的服务；选择“跟随默认服务”时使用模型服务页面设置的默认项。", "This changes only the current feature; Follow default service uses the default selected under Model services.")}</p>
+      {feature === "page" && <ShortcutStatus en={en} />}
     </div>
 
     <div className="feature-group">
       <h3>{t("语言方向", "Language direction")}</h3>
-      <LanguageDirection settings={effective} update={updatePreferences} />
+      <LanguageDirection settings={effective} update={updatePreferences} allowBidirectional={feature === "selection"} />
     </div>
 
     {feature === "selection" && <div className="feature-group">
@@ -52,13 +56,13 @@ export function FeatureTranslationSettings({ feature, step, form, patch }: {
 
     {feature === "page" && <div className="feature-group">
       <h3>{t("全文行为", "Page behavior")}</h3>
-      <PageTranslationPreferences settings={effective} update={patch} />
+      <PageTranslationPreferences settings={effective} update={patch} showShortcutSettings={false} showShortcutStatus={false} />
     </div>}
 
     <div className="feature-group">
       <h3>{t("提示词与输出", "Prompt and output")}</h3>
       {rich ? <>
-        <label>{t("提示词风格", "Prompt style")}<select value={effective.translationScene} onChange={event => updatePreferences({ translationScene: event.target.value as FeatureTranslationPreferences["translationScene"] })}>{TRANSLATION_SCENES.map(scene => <option key={scene.id} value={scene.id}>{en ? sceneNames[scene.id] : scene.name}</option>)}</select><small>{t("使用“提示词设置”中对应风格的内容。", "Uses the matching template from Prompt settings.")}</small></label>
+        <label>{t("提示词风格", "Prompt style")}<select value={effective.translationScene} onChange={event => updatePreferences({ translationScene: event.target.value })}>{form.promptStyles.map(style => <option key={style.id} value={style.id}>{style.name}</option>)}</select><small>{t("使用“提示词设置”中对应风格的内容。", "Uses the matching template from Prompt settings.")}</small></label>
         {feature !== "page" && <>
           <div className="grid">
             <label>{t("思考过程", "Reasoning")}<select value={effective.enableThinking ? "on" : "off"} onChange={event => updatePreferences({ enableThinking: event.target.value === "on" })}><option value="off">{t("关闭（默认）", "Off (default)")}</option><option value="on">{t("开启并显示", "On and visible")}</option></select></label>

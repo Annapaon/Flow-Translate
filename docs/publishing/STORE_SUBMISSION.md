@@ -24,7 +24,7 @@
 
 3. 将 `.output/privacy-site/` 的内容上传至你管理的公开静态网站。只上传这一目录即可，不要上传扩展源码、配置文件或凭据。取得可直接展示政策正文的 HTTPS 地址。
 4. 用未登录的无痕窗口打开该地址，确认无权限申请、登录墙、过期分享限制或下载提示；能看见产品名称、中英文政策和真实联系邮箱。确认最终响应成功且 HTTPS 证书有效。
-5. 打开[此产品的开发者后台](https://chrome.google.com/webstore/devconsole/e555c1f4-626c-4ef4-a510-bdc417173e10/amjogmonhgjbbndglcedgbgglcpncbjc/edit)，进入“隐私权 / Privacy practices”，在“隐私权政策网址 / Privacy policy URL”专用字段填入该公开地址并保存。不得把链接添加到产品说明中来代替此字段。
+5. 打开 [Chrome Web Store 开发者信息中心](https://chrome.google.com/webstore/devconsole)，选择对应产品，进入“隐私权 / Privacy practices”，在“隐私权政策网址 / Privacy policy URL”专用字段填入该公开地址并保存。不得把链接添加到产品说明中来代替此字段。
 6. 重新进入该页确认链接已保存，同时核对数据使用披露与提交版本一致，然后重新提交审核。
 
 当前仓库材料不代表上述公开托管或后台填写已经完成。公开邮箱、最终政策 URL 和后台保存状态需由实际发布结果确认。

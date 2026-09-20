@@ -13,8 +13,8 @@ test("two settings pages preserve independent edits and feature bindings", async
   await first.getByRole("button", { name: /Languages and behavior/ }).click();
   await second.getByRole("button", { name: /Page mode and appearance/ }).click();
   await Promise.all([
-    first.getByRole("combobox", { name: "Translation service", exact: true }).selectOption("other"),
-    second.getByRole("combobox", { name: "Translation service", exact: true }).selectOption("other")
+    first.getByRole("combobox", { name: "Selection translation service", exact: true }).selectOption("other"),
+    second.getByRole("combobox", { name: "Page translation service", exact: true }).selectOption("other")
   ]);
   await expect.poll(() => first.evaluate(async () => (await (globalThis as any).chrome.storage.local.get("translatorSettings")).translatorSettings.featureModels)).toEqual({ selection: "other", page: "other", longText: "" });
   await second.getByRole("button", { name: /Prompts by scene/ }).click();
@@ -39,6 +39,26 @@ test("region rejection explains access failures and recovers after settings chan
   await expect.poll(async () => (await e.pageStatus()).unavailableReason).toBeUndefined();
   expect((await e.control("region")).state).toBe("selecting");
   await e.page.keyboard.press("Escape");
+});
+
+test("an unreadable page warning remains visible until the page state changes", async ({ extension: e }) => {
+  await e.configure("click");
+  await e.page.evaluate(() => {
+    for (const element of document.querySelectorAll("p, div, strong")) element.textContent = "";
+    for (const control of document.querySelectorAll("input, textarea")) (control as HTMLInputElement | HTMLTextAreaElement).value = "";
+  });
+  await e.control("start");
+  await expect.poll(async () => (await e.pageStatus()).error).toContain("No page text");
+  const popup = await e.options();
+  const pageId = await popup.evaluate(async () => (await (globalThis as any).chrome.tabs.query({})).find((tab: any) => tab.url?.startsWith("http://127.0.0.1")).id);
+  await popup.addInitScript(({ pageId }) => {
+    (globalThis as any).chrome.tabs.query = async () => [{ id: pageId, url: "http://127.0.0.1/" }];
+  }, { pageId });
+  await popup.goto(popup.url().replace("options.html", "popup.html"));
+  const alert = popup.getByRole("alert").filter({ hasText: "No page text" });
+  await expect(alert).toBeVisible();
+  await popup.waitForTimeout(4500);
+  await expect(alert).toBeVisible();
 });
 
 test("idle popup uses fewer polls and refreshes after returning to the page", async ({ extension: e }) => {

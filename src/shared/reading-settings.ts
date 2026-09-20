@@ -122,9 +122,9 @@ export function forWebsite<
         }
       : language.kind === "pair"
         ? {
-            bidirectional: true,
-            pairSourceLanguage: language.first,
-            pairLanguage: language.second
+            bidirectional: false,
+            sourceLanguage: "自动检测",
+            targetLanguage: language.second
           }
         : {})
   };

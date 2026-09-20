@@ -3,8 +3,14 @@ import { attachTranslationPort } from "../core/translation/port";
 import { pausedSites, disabledSites, isPaused } from "../shared/site-access";
 import { getPublicSettings, getSettings, watchPublicSettings } from "../shared/settings";
 import type { TranslatorSettings } from "../shared/types";
-import { testConnection } from "../core/providers";
+import { generateTranslationPrompt, testConnection } from "../core/providers";
+import { diagnose } from "../core/providers/diagnostics";
+import { isMachine } from "../shared/provider-list";
+import { settingsForFeature } from "../core/translation/model-routing";
+import { modelLane, schedule } from "../core/translation/scheduler";
+import { registerMeter } from "../core/translation/meter";
 import {
+  recordModelUsage,
   recordServiceCalls,
   clearHistory,
   clearHistoryAndCache,
@@ -56,11 +62,11 @@ export default defineBackground(() => {
       port.onDisconnect.addListener(() => { unwatch(); unpause(); undisable(); });
       return;
     }
-    if (port.name === "translation-stream" || port.name === "page-translation") attachTranslationPort(port);
+    if (["selection-translation", "long-text-translation", "translation-stream", "page-translation"].includes(port.name)) attachTranslationPort(port);
     else port.disconnect();
   });
 
-  browser.runtime.onMessage.addListener(async (message: { type?: string; settings?: TranslatorSettings } | null, sender) => {
+  browser.runtime.onMessage.addListener(async (message: { type?: string; settings?: TranslatorSettings; profileId?: string; name?: string; description?: string; currentPrompt?: string; requirements?: string } | null, sender) => {
     if (!message || typeof message !== "object") return undefined;
     const extensionPage = Boolean(sender.url?.startsWith(browser.runtime.getURL("/")));
     if (message.type === "open-options") {
@@ -98,6 +104,38 @@ export default defineBackground(() => {
     if (message.type === "clear-local-data") {
       await Promise.all([clearHistoryAndCache(), clearAllModelUsage()]);
       return { ok: true };
+    }
+    if (message.type === "generate-prompt") {
+      const base = await getSettings();
+      const en = base.uiLanguage === "en";
+      const profileId = typeof message.profileId === "string" ? message.profileId : "";
+      const profile = base.modelProfiles.find(item => item.id === profileId && item.enabled);
+      if (!base.privacyConsentAccepted) return { ok: false, message: en ? "Accept the data handling notice first" : "请先确认数据处理说明" };
+      if (!profile || isMachine(profile.provider)) return { ok: false, message: en ? "Select an enabled LLM service" : "请选择已启用的大模型服务" };
+      const input = {
+        name: String(message.name ?? "").slice(0, 100),
+        description: String(message.description ?? "").slice(0, 300),
+        currentPrompt: String(message.currentPrompt ?? "").slice(0, 20_000),
+        requirements: String(message.requirements ?? "").slice(0, 2_000)
+      };
+      let calls = 0;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), Math.min(profile.timeoutMs, 120_000));
+      const unmeter = registerMeter(controller.signal, () => calls++);
+      try {
+        const settings = settingsForFeature(base, "selection", profile.id);
+        const lane = await modelLane(new URL(settings.apiBaseUrl).origin, profile);
+        const prompt = await schedule(lane, false, controller.signal,
+          () => generateTranslationPrompt(input, settings, controller.signal), false, profile.maxConcurrency ?? 2);
+        if (!sender.tab?.incognito) await recordModelUsage(profile.id, JSON.stringify(input).length, prompt.length);
+        return { ok: true, prompt };
+      } catch (error) {
+        return { ok: false, message: diagnose(error, en).message };
+      } finally {
+        clearTimeout(timeout);
+        unmeter();
+        if (calls && !sender.tab?.incognito) await recordServiceCalls(profile.id, calls).catch(() => {});
+      }
     }
     if (message.type === "test-connection" && message.settings) {
       let calls = 0;

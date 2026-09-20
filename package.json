@@ -1,6 +1,6 @@
 {
   "name": "flow-translate",
-  "version": "1.4.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -47,5 +47,9 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.69.0",
     "vitest": "^5.0.0"
+  },
+  "description": "支持划词、网页全文和长文本翻译的 Chrome/Edge 浏览器扩展",
+  "engines": {
+    "node": ">=24"
   }
 }

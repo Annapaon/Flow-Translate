@@ -2,13 +2,14 @@ import React, { useEffect, useState } from "react";
 import type { TranslatorSettings } from "./types";
 import { Toggle } from "./LanguageDirection";
 
-export function PageTranslationPreferences({ settings: s, update, onTranslate, translateDisabled = false, modeLocked = false, showShortcutSettings = true }: {
+export function PageTranslationPreferences({ settings: s, update, onTranslate, translateDisabled = false, modeLocked = false, showShortcutSettings = true, showShortcutStatus = true }: {
   settings: TranslatorSettings;
   update: (patch: Partial<TranslatorSettings>) => void;
   onTranslate?: () => Promise<void>;
   translateDisabled?: boolean;
   modeLocked?: boolean;
   showShortcutSettings?: boolean;
+  showShortcutStatus?: boolean;
 }) {
   const t = (zh: string, en: string) => s.uiLanguage === "en" ? en : zh;
   const [shortcut, setShortcut] = useState<string | undefined>();
@@ -23,11 +24,6 @@ export function PageTranslationPreferences({ settings: s, update, onTranslate, t
     window.addEventListener("focus", refresh);
     return () => { alive = false; window.removeEventListener("focus", refresh); };
   }, []);
-  useEffect(() => {
-    if (!error) return;
-    const timer = setTimeout(() => setError(""), 4_000);
-    return () => clearTimeout(timer);
-  }, [error]);
   return <div className="ft-page-preferences">
     <Toggle label={t("网页全文翻译", "Page translation")} checked={s.pageTranslationEnabled} onChange={pageTranslationEnabled => update({ pageTranslationEnabled })} />
     {s.pageTranslationEnabled && <>
@@ -36,7 +32,7 @@ export function PageTranslationPreferences({ settings: s, update, onTranslate, t
         <button type="button" disabled={modeLocked} aria-pressed={s.pageTranslationMode === "auto"} onClick={() => update({ pageTranslationMode: "auto" })}>{t("自动翻译", "Automatic translation")}</button>
       </div>
       {modeLocked && <p className="ft-help">{t("此网站的模式由网站规则控制，可在设置中修改。", "This mode is controlled by a website rule. Edit it in settings.")}</p>}
-      {s.pageTranslationMode === "manual" ? <div className="ft-shortcut">
+      {s.pageTranslationMode === "manual" ? showShortcutStatus && <div className="ft-shortcut">
         {onTranslate ? <button type="button" className="ft-translate-button" disabled={translateDisabled || starting} onClick={async () => {
           setStarting(true); setError("");
           try { await onTranslate(); }

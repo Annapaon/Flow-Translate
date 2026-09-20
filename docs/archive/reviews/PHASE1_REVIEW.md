@@ -1,7 +1,7 @@
 # 一期开发计划完成度核对报告
 
 > 核对日期：2026-09-08
-> 依据文档：docs/plans/TRANSLATION_EXTENSION_PLAN.md（文档版本 1.0，2026-08-28）
+> 依据文档：docs/design/TRANSLATION_EXTENSION_PLAN.md（文档版本 1.0，2026-08-28）
 > 核对对象：当前工作区代码（develop 分支，含未提交重构）
 > 核对范围：一期（P0 最小可用版本）为主，同时覆盖计划中已勾选的 P1 / P2 项
 

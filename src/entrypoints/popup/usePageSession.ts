@@ -14,11 +14,6 @@ export function usePageSession(en: boolean, enabled: boolean) {
   const lastFailure = useRef("");
   const t = (zh: string, english: string) => en ? english : zh;
   useEffect(() => {
-    if (!error) return;
-    const timer = setTimeout(() => setError(""), 4000);
-    return () => clearTimeout(timer);
-  }, [error]);
-  useEffect(() => {
     let alive = true;
     const refresh = async () => {
       try {
@@ -51,7 +46,14 @@ export function usePageSession(en: boolean, enabled: boolean) {
         if (!/^https?:\/\//.test(pageUrl)) throw new Error(pageAccessMessage("unsupported", en));
         const next = await browser.tabs.sendMessage(tab!, { type: "page-status" });
         if (!next || typeof next.state !== "string") throw new Error();
-        if (alive) { setStatus(next); setError(""); lastFailure.current = ""; }
+        if (alive) {
+          setStatus(next);
+          const persistent = next.unavailableReason
+            ? pageAccessMessage(next.unavailableReason, en)
+            : next.state === "idle" ? next.error || "" : "";
+          setError(persistent);
+          lastFailure.current = "";
+        }
         delay = statusPollDelay(next.state);
       } catch {
         const message = /^https?:\/\//.test(pageUrl)
