@@ -1,0 +1,79 @@
+name: Publish Firefox developer package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-firefox.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firefox-release-1.0.0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'Annapaon/Flow-Translate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint && npm run typecheck && npm test
+      - run: npm run zip:firefox
+      - run: npx --yes web-ext@10.6.0 lint --source-dir .output/firefox-mv3
+      - name: Upload Firefox assets and installation instructions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).version')" = 1.0.0
+          gh release view v1.0.0 --json body --jq .body > .output/release-body.md
+          gh release upload v1.0.0 \
+            .output/flow-translate-1.0.0-firefox-unsigned.zip \
+            .output/flow-translate-1.0.0-firefox-unsigned.zip.sha256 --clobber
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path('.output/release-body.md')
+          body = path.read_text()
+          start = '<!-- firefox-developer-package:start -->'
+          end = '<!-- firefox-developer-package:end -->'
+          if start in body and end in body:
+              before, rest = body.split(start, 1)
+              body = before.rstrip() + rest.split(end, 1)[1]
+          repo = os.environ['GH_REPO']
+          commit = os.environ['SOURCE_COMMIT']
+          checksum = Path('.output/flow-translate-1.0.0-firefox-unsigned.zip.sha256').read_text().strip()
+          section = f'''
+
+          {start}
+          ## Firefox 桌面版 140+（未签名开发包）
+
+          下载附件 `flow-translate-1.0.0-firefox-unsigned.zip` 并解压，在 Firefox 打开 `about:debugging#/runtime/this-firefox`，点击“临时载入附加组件”，选择解压目录中的 `manifest.json`。
+
+          **此包未经过 Mozilla 签名，不能永久安装；重启 Firefox 后需要重新临时加载。** 正式安装需要后续 Mozilla 签名。本次不包含 Android 适配。
+
+          支持划词、网页全文及 Firefox 侧边栏长文本翻译。快捷键在 `about:addons` → 齿轮菜单 →“管理扩展快捷键”中修改。
+
+          [Firefox 适配源码](https://github.com/{repo}/tree/{commit}) · [详细安装说明](https://github.com/{repo}/blob/{commit}/docs/FIREFOX.md)。原有 Chrome 安装包及版本标签保持不变；Firefox 源码以此提交为准。
+
+          SHA-256：`{checksum}`
+          {end}
+          '''
+          import textwrap
+          path.write_text(body.rstrip() + textwrap.dedent(section) + '\n')
+          PY
+          gh release edit v1.0.0 --notes-file .output/release-body.md

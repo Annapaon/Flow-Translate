@@ -3,7 +3,7 @@ import { DEFAULT_BLOCKED_SITES } from "./constants";
 export type TriggerMode = "click" | "auto";
 /**
  * Where model API keys are persisted (plan §9.1):
- * - "local": inside the settings blob in chrome.storage.local (survives restarts).
+ * - "local": inside trusted local storage (Chromium) or extension-origin IDB (Firefox).
  * - "session": in chrome.storage.session, wiped when the browser closes.
  */
 export type KeyStorageMode = "local" | "session";

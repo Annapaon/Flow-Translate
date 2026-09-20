@@ -1,3 +1,4 @@
+import { openLongTextPanel } from "../../shared/browser-platform";
 import { useSaveFeedback } from "../../ui/hooks/useSaveFeedback";
 import { selectFeatureService, updateFeaturePreferences } from "../../shared/service-selection";
 import { FeatureServiceSelect } from "../../ui/components/FeatureServiceSelect";
@@ -60,7 +61,7 @@ function App() {
   }
 
   async function openSidePanel() {
-    await browser.sidePanel.open({ windowId: browser.windows.WINDOW_ID_CURRENT });
+    await openLongTextPanel();
     window.close();
   }
 

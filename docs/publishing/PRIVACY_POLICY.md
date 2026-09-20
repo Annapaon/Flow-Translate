@@ -45,7 +45,7 @@ Chrome 扩展产品 ID / Chrome extension ID: `amjogmonhgjbbndglcedgbgglcpncbjc`
 
 ### 9. 联系与变更
 
-如需咨询隐私问题或申请协助删除数据，请联系开发者：`[CONTACT_EMAIL]`。政策更新将在本页面注明生效日期；重大变更将在扩展界面中告知。
+如需咨询隐私问题或申请协助删除数据，请联系开发者：`annapaon@163.com`。政策更新将在本页面注明生效日期；重大变更将在扩展界面中告知。
 
 ## English
 
@@ -88,7 +88,7 @@ The extension is not designed to collect children's information. Do not submit p
 
 ### 9. Contact and changes
 
-For privacy questions or assistance with data deletion, contact the developer at `[CONTACT_EMAIL]`. Updates will change the effective date above; material changes will also be disclosed in the extension.
+For privacy questions or assistance with data deletion, contact the developer at `annapaon@163.com`. Updates will change the effective date above; material changes will also be disclosed in the extension.
 
 ### 全文与网关补充说明 / Page translation and gateways
 

@@ -24,7 +24,10 @@ import {
 
 export default defineBackground(() => {
   // Prevent content scripts from reading model credentials from extension storage.
-  void browser.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+  // Firefox stores private settings in extension-origin IndexedDB instead.
+  if (browser.storage.local.setAccessLevel) {
+    void browser.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+  }
 
   browser.runtime.onInstalled.addListener(() => {
     browser.contextMenus.create({

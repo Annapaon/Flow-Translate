@@ -13,7 +13,9 @@
 import type { ModelUsageEntry, TranslationCacheEntry, TranslationHistoryEntry } from "./types";
 
 const DB_NAME = "flow-translate";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+
+export const SETTINGS_STORE = "private-settings";
 
 export const HISTORY_STORE = "history";
 export const CACHE_STORE = "cache";
@@ -30,6 +32,7 @@ export function openDb(): Promise<IDBDatabase> {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
       request.onupgradeneeded = () => {
         const db = request.result;
+        if (!db.objectStoreNames.contains(SETTINGS_STORE)) db.createObjectStore(SETTINGS_STORE);
         if (!db.objectStoreNames.contains(HISTORY_STORE)) {
           db.createObjectStore(HISTORY_STORE, { keyPath: "seq", autoIncrement: true });
         }

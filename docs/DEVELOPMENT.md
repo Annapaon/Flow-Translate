@@ -100,3 +100,11 @@ TRANSLATOR_TEST_SETTINGS=/absolute/path/to/test-settings.json npm run test:accep
 性能数据在 `.output/benchmarks/`，验收数据在 `.output/acceptance/`，均不提交 Git。使用 `TRANSLATOR_EXTENSION_PATH` 指向旧版本解压目录，并设置 `BENCHMARK_LABEL`，可以在同一测试条件下对比版本。实时服务测试仅验证协议连通与非空输出；真实浏览器接口授权及人工译文质量还需单独验收。
 
 设置 `BENCHMARK_EXTRA_NODES=2000` 可额外加入布局节点，对比大型页面的规划与首段延迟。基准应顺序运行，避免其他浏览器测试争抢 CPU；不能将本地模拟接口的数据当作真实服务性能。
+
+## Firefox 构建与验证
+
+`npm run dev:firefox` 启动 Firefox 开发模式；`npm run build:firefox` 生成 `.output/firefox-mv3/`；`npm run zip:firefox` 生成带 `unsigned` 标识的开发包与 SHA-256 文件。Firefox 适配仍使用公开版本 1.0.0，共享业务代码。
+
+Firefox 使用后台脚本与 `sidebarAction`，私有设置使用扩展源的 IndexedDB，会话密钥仍使用 `storage.session`。不要将 Firefox 私有设置改存到内容脚本可访问的 `storage.local`；该区域只放公开设置和不含敏感数据的变更标记。
+
+真实浏览器回归和发布方式见 [Firefox 说明](FIREFOX.md)。

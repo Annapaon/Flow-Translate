@@ -13,7 +13,7 @@
 - 使用 `git status --ignored` 确认 `.output/`、`node_modules/`、测试报告和用户配置未进入提交。
 - 确认 `.local/` 中的规划、评审、旧发布记录和设计源图未进入提交。忽略规则不会清理已有 Git 历史，发布前也应检查拟推送的历史。
 - 搜索并排除 API Key、访问令牌、私人接口、个人邮箱和浏览器状态。
-- 将 `docs/publishing/PRIVACY_POLICY.md` 中的 `[CONTACT_EMAIL]` 替换为真实公开邮箱。
+- ✅ 已将 `docs/publishing/PRIVACY_POLICY.md` 中的 `[CONTACT_EMAIL]` 替换为真实公开邮箱（annapaon@163.com）。
 - 运行 `PRIVACY_CONTACT_EMAIL='公开邮箱' npm run build:privacy`，将生成页面部署到公开 HTTPS 地址。
 
 ## 验证与打包

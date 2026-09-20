@@ -4,7 +4,7 @@
   <img src="src/public/icon/128.png" width="96" height="96" alt="流译助手图标">
 </p>
 
-流译助手是一款使用 WXT、React 和 TypeScript 开发的 Chrome/Edge 翻译扩展。它支持划词翻译、网页全文双语翻译和长文本翻译，并允许不同功能使用不同的翻译服务。
+流译助手是一款使用 WXT、React 和 TypeScript 开发的 Chrome/Edge/Firefox 翻译扩展。它支持划词翻译、网页全文双语翻译和长文本翻译，并允许不同功能使用不同的翻译服务。
 
 当前公开版本：**1.0.0**。
 
@@ -31,6 +31,8 @@ npm run build
 ```
 
 然后打开 `chrome://extensions` 或 `edge://extensions`，启用开发者模式，选择“加载已解压的扩展程序”，加载 `.output/chrome-mv3`。
+
+Firefox 桌面版 140+ 使用 `npm run zip:firefox` 构建；Release 中的 `flow-translate-1.0.0-firefox-unsigned.zip` 是未签名开发包，需要通过 `about:debugging` 临时加载，重启浏览器后需重新加载。详见 [Firefox 安装说明](docs/FIREFOX.md)。
 
 首次使用时，打开扩展设置页并添加翻译服务。详细操作见 [使用说明](docs/USAGE.md)。
 
@@ -66,7 +68,7 @@ scripts/              构建辅助脚本
 
 ## 数据与安全
 
-API Key 保存在浏览器扩展本地存储中，只允许扩展页面和后台读取。配置导出默认不包含 API Key 和自定义请求头。浏览器本地存储不等同于系统密钥保险箱，请勿在不可信设备上保存重要凭据。
+API Key 保存在浏览器扩展本地存储中，只允许扩展页面和后台读取。Firefox 使用扩展自身的 IndexedDB 隔离私有配置，会话密钥使用 `storage.session`。配置导出默认不包含 API Key 和自定义请求头。浏览器本地存储不等同于系统密钥保险箱，请勿在不可信设备上保存重要凭据。
 
 云端接口必须使用 HTTPS；HTTP 只允许本机和局域网地址。扩展会在保存、测试或导入服务配置时申请对应站点访问权限。
 

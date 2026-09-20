@@ -1,3 +1,4 @@
+import { isFirefox, openShortcutSettings, firefoxShortcutInstructions } from "../../shared/browser-platform";
 import React, { useEffect, useState } from "react";
 import type { TranslatorSettings } from "../../shared/types";
 import { Toggle } from "./LanguageDirection";
@@ -40,7 +41,8 @@ export function PageTranslationPreferences({ settings: s, update, onTranslate, t
           finally { setStarting(false); }
         }}>{starting ? t("正在开始…", "Starting…") : t("点击翻译", "Click to translate")}（{shortcut === undefined ? "…" : shortcut ? shortcut.replace(/\s*\+\s*/g, " + ") : t("未绑定快捷键", "No shortcut assigned")}）</button>
           : <span className="ft-shortcut-label">{t("翻译快捷键", "Translation shortcut")} · {shortcut === undefined ? "…" : shortcut || t("未绑定", "Not assigned")}</span>}
-        {showShortcutSettings && <button type="button" onClick={() => { void browser.tabs.create({ url: "chrome://extensions/shortcuts" }).catch(() => setError(t("请在浏览器扩展快捷键页面修改。", "Open your browser's extension shortcuts page to change this shortcut."))); }}>{t("修改快捷键", "Change shortcut")}</button>}
+        {showShortcutSettings && isFirefox() && <small>{firefoxShortcutInstructions(s.uiLanguage === "en")}</small>}
+        {showShortcutSettings && !isFirefox() && <button type="button" onClick={() => { void openShortcutSettings().catch(() => setError(t("请在浏览器扩展快捷键页面修改。", "Open your browser's extension shortcuts page to change this shortcut."))); }}>{t("修改快捷键", "Change shortcut")}</button>}
       </div> : <p className="ft-help">{t("进入可翻译页面后自动发送正文，译文显示在原文下方；已暂停或禁用的网站除外。", "Automatically sends readable text when you enter a page and displays translations below it, except on paused or blocked sites.")}</p>}
     </>}
     {error && <p role="alert">{error}</p>}

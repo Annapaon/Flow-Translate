@@ -1,3 +1,5 @@
+import { isFirefox } from "./browser-platform";
+import { getPrivateSettings, setPrivateSettings, watchPrivateSettings } from "./private-settings";
 import { mergeSettingsChanges } from "./settings-changes";
 import { translationStyleSchema, siteRuleSchema, DEFAULT_TRANSLATION_STYLE } from "./reading-settings";
 import { isMachine } from "./provider-list";
@@ -8,9 +10,17 @@ import { clearSessionKeys, getSessionKeys, mergeSessionKeys, saveSessionKeys, sp
 import { DEFAULT_FEATURE_PREFERENCES, DEFAULT_PROMPT_STYLES, DEFAULT_PUBLIC_SETTINGS, DEFAULT_SCENE_PROMPTS, DEFAULT_SETTINGS, type FeatureTranslationPreferences, type ModelProfile, type PromptStyle, type PublicTranslatorSettings, type TranslationFeature, type TranslatorSettings } from "./types";
 import { settingsForFeature } from "../core/translation/model-routing";
 
-export const settingsItem = storage.defineItem<TranslatorSettings>("local:translatorSettings", {
+const localSettingsItem = storage.defineItem<TranslatorSettings>("local:translatorSettings", {
   defaultValue: DEFAULT_SETTINGS
 });
+
+// Firefox cannot restrict storage.local to trusted extension contexts.
+// Keep the entire private configuration (including custom headers) in IDB.
+export const settingsItem = {
+  getValue: () => isFirefox() ? getPrivateSettings() : localSettingsItem.getValue(),
+  setValue: (value: TranslatorSettings) => isFirefox() ? setPrivateSettings(value) : localSettingsItem.setValue(value),
+  watch: (callback: () => void) => isFirefox() ? watchPrivateSettings(callback) : localSettingsItem.watch(callback)
+};
 
 /**
  * Clamp a numeric setting to its allowed range. Number inputs let users clear

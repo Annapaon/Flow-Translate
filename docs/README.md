@@ -3,6 +3,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [使用说明](USAGE.md) | 安装、服务配置及翻译功能 |
+| [Firefox 安装与开发](FIREFOX.md) | 未签名包临时加载、兼容范围及验证 |
 | [工程维护](DEVELOPMENT.md) | 目录职责、开发命令、测试和提交边界 |
 | [1.0.0 发布说明](releases/RELEASE_NOTES_1.0.0.md) | 首个公开版本的功能与安装方式 |
 | [公开发布检查清单](PUBLIC_RELEASE_CHECKLIST.md) | 版本、源码与发布附件检查 |

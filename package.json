@@ -18,7 +18,10 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run test:e2e",
     "test:benchmark": "playwright test --config playwright.benchmark.config.ts",
     "test:acceptance:services": "vitest run --config vitest.live.config.ts",
-    "test:acceptance:websites": "playwright test --config playwright.acceptance.config.ts"
+    "test:acceptance:websites": "playwright test --config playwright.acceptance.config.ts",
+    "dev:firefox": "wxt -b firefox",
+    "build:firefox": "wxt build -b firefox",
+    "zip:firefox": "wxt zip -b firefox && node scripts/package-firefox.mjs"
   },
   "dependencies": {
     "@wxt-dev/module-react": "^1.2.2",
@@ -48,7 +51,7 @@
     "typescript-eslint": "^8.69.0",
     "vitest": "^5.0.0"
   },
-  "description": "支持划词、网页全文和长文本翻译的 Chrome/Edge 浏览器扩展",
+  "description": "支持划词、网页全文和长文本翻译的 Chrome/Edge/Firefox 浏览器扩展",
   "engines": {
     "node": ">=24"
   },

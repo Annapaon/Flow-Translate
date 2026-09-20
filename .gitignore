@@ -13,6 +13,7 @@ node_modules/
 # Extension packages and signing credentials
 *.zip
 *.crx
+*.xpi
 *.pem
 *.key
 *.p12
