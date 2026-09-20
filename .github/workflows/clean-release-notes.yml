@@ -1,0 +1,60 @@
+name: Clean public release notes
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/clean-release-notes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  clean:
+    if: github.repository == 'Annapaon/Flow-Translate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Remove legacy version reference from the 1.0.0 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.request
+
+          api = 'https://api.github.com/repos/' + os.environ['GH_REPO']
+          headers = {
+              'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+
+          def request(path, data=None):
+              req = urllib.request.Request(
+                  api + path,
+                  data=json.dumps(data).encode() if data is not None else None,
+                  headers={**headers, 'Content-Type': 'application/json'},
+                  method='PATCH' if data is not None else 'GET',
+              )
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return json.load(response)
+
+          release = request('/releases/tags/v1.0.0')
+          body = release['body'] or ''
+          # Match only the legacy provenance clause, retaining all other notes.
+          cleaned = re.sub(r'，功能代码基于内部稳定版本 [0-9]+\.[0-9]+\.[0-9]+(?=。)', '', body)
+          if cleaned == body:
+              print('Release notes already clean; no update needed.')
+          else:
+              updated = request('/releases/' + str(release['id']), {'body': cleaned})
+              assert updated['body'] == cleaned
+              assert updated['tag_name'] == release['tag_name']
+              assert [a['id'] for a in updated['assets']] == [a['id'] for a in release['assets']]
+              print('Updated release notes; tag and assets unchanged.')
+          PY
