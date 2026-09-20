@@ -52,6 +52,24 @@ export interface ModelProfile {
 
 export type TranslationFeature = "selection" | "page" | "longText";
 
+export interface FeatureTranslationPreferences {
+  sourceLanguage: string;
+  targetLanguage: string;
+  bidirectional: boolean;
+  pairSourceLanguage: string;
+  pairLanguage: string;
+  translationScene: TranslationScene;
+  smartOutput: boolean;
+  outputMode: OutputMode;
+  enableThinking: boolean;
+}
+
+export const DEFAULT_FEATURE_PREFERENCES: Record<TranslationFeature, FeatureTranslationPreferences> = {
+  selection: { sourceLanguage: "自动检测", targetLanguage: "简体中文", bidirectional: false, pairSourceLanguage: "简体中文", pairLanguage: "日本語", translationScene: "general", smartOutput: false, outputMode: "translation", enableThinking: false },
+  page: { sourceLanguage: "自动检测", targetLanguage: "简体中文", bidirectional: false, pairSourceLanguage: "简体中文", pairLanguage: "日本語", translationScene: "general", smartOutput: false, outputMode: "translation", enableThinking: false },
+  longText: { sourceLanguage: "自动检测", targetLanguage: "简体中文", bidirectional: false, pairSourceLanguage: "简体中文", pairLanguage: "日本語", translationScene: "general", smartOutput: false, outputMode: "translation", enableThinking: false }
+};
+
 export interface TranslationStyle { scale: number; spacing: number; tone: "purple" | "blue" | "neutral"; background: boolean }
 export interface SiteRule { id: string; host: string; subdomains: boolean; mode: "inherit" | "manual" | "auto"; language: { kind: "inherit" } | { kind: "fixed"; source: string; target: string } | { kind: "pair"; first: string; second: string } }
 export interface TranslatorSettings {
@@ -59,6 +77,7 @@ export interface TranslatorSettings {
   siteRules: SiteRule[];
   separateModels: boolean;
   featureModels: Record<TranslationFeature, string>;
+  featurePreferences: Record<TranslationFeature, FeatureTranslationPreferences>;
   responseFormat?: "html" | "batch";
   schemaVersion: number;
   pageTranslationEnabled: boolean;
@@ -105,8 +124,13 @@ export const DEFAULT_SETTINGS: TranslatorSettings = {
   siteRules: [],
   separateModels: false,
   featureModels: { selection: "", page: "", longText: "" },
+  featurePreferences: {
+    selection: { ...DEFAULT_FEATURE_PREFERENCES.selection },
+    page: { ...DEFAULT_FEATURE_PREFERENCES.page },
+    longText: { ...DEFAULT_FEATURE_PREFERENCES.longText }
+  },
   pageTranslationEnabled: true, pageTranslationMode: "manual",
-  schemaVersion: 2, bidirectional: false, pairSourceLanguage: "简体中文", pairLanguage: "日本語", smartOutput: false, terms: [],
+  schemaVersion: 3, bidirectional: false, pairSourceLanguage: "简体中文", pairLanguage: "日本語", smartOutput: false, terms: [],
   privacyConsentAccepted: false,
   uiLanguage: "zh-CN",
   keyStorage: "local",
@@ -156,7 +180,7 @@ export const DEFAULT_SETTINGS: TranslatorSettings = {
 export type PublicTranslatorSettings = Pick<TranslatorSettings,
   "pageTranslationEnabled" | "pageTranslationMode" | "privacyConsentAccepted" | "uiLanguage" | "targetLanguage" | "triggerMode" | "enableThinking" |
   "blockedSites" | "allowedSites" | "siteAccessMode" | "minChars" | "maxChars"
-> & { translationStyle?: TranslationStyle; siteRules?: SiteRule[]; model: string; paused?: boolean; bidirectional?: boolean; pairSourceLanguage?: string; pairLanguage?: string; services?: Array<{ id: string; name: string }> };
+> & { translationStyle?: TranslationStyle; siteRules?: SiteRule[]; featurePreferences?: Record<TranslationFeature, FeatureTranslationPreferences>; model: string; paused?: boolean; bidirectional?: boolean; pairSourceLanguage?: string; pairLanguage?: string; services?: Array<{ id: string; name: string }> };
 
 export const DEFAULT_PUBLIC_SETTINGS: PublicTranslatorSettings = {
   pageTranslationEnabled: DEFAULT_SETTINGS.pageTranslationEnabled,
@@ -171,6 +195,7 @@ export const DEFAULT_PUBLIC_SETTINGS: PublicTranslatorSettings = {
   siteAccessMode: DEFAULT_SETTINGS.siteAccessMode,
   minChars: DEFAULT_SETTINGS.minChars,
   maxChars: DEFAULT_SETTINGS.maxChars,
+  featurePreferences: DEFAULT_SETTINGS.featurePreferences,
   model: DEFAULT_SETTINGS.model
 };
 

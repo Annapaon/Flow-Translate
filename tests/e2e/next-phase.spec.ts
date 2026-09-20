@@ -1,4 +1,5 @@
 import { test, expect, select } from "./fixtures";
+import { DEFAULT_SETTINGS } from "../../src/shared/types";
 test("whole page preserves inline formats, updates dynamic text and restores original nodes", async ({
   extension: e,
 }) => {
@@ -157,7 +158,7 @@ test("changing settings pauses page work and machine translation ignores saved L
   await e.configure("click");
   await e.control("start");
   await expect.poll(() => e.requests.length).toBeGreaterThan(0);
-  await e.settings({ targetLanguage: "日本語" });
+  await e.settings({ featurePreferences: { ...DEFAULT_SETTINGS.featurePreferences, page: { ...DEFAULT_SETTINGS.featurePreferences.page, targetLanguage: "日本語" } } });
   await expect.poll(async () => (await e.pageStatus()).state).toBe("paused");
   await expect.poll(() => e.requests.every((r) => r.aborted)).toBe(true);
   await e.control("restore");
@@ -197,7 +198,6 @@ test("language pair controls replace fixed direction and persist across popup an
   await options.getByRole("combobox", { name: "First language", exact: true }).selectOption("English");
   await expect(options.getByRole("combobox", { name: "Second language", exact: true }).locator('option', { hasText: /^English$/ })).toHaveJSProperty("disabled", true);
   await expect(options.getByRole("combobox", { name: "Source language", exact: true })).toHaveCount(0);
-  await options.locator(".llm-preferences > summary").click();
   await options.getByText("Custom terms ·", { exact: false }).click();
   await options.getByRole("button", { name: /Add term/ }).click();
   await options.screenshot({ path: testInfo.outputPath("translation-settings.png"), fullPage: true });
@@ -284,7 +284,7 @@ test("manual mode waits for the shortcut and shares page preferences with popup"
   await e.configure("click");
   await e.machine();
   const options = await e.options();
-  await options.getByRole("button", { name: /Languages and behavior/ }).click();
+  await options.getByRole("button", { name: /Page mode and appearance/ }).click();
   await expect(options.getByRole("button", { name: "Key translation", exact: true })).toHaveAttribute("aria-pressed", "true");
   await e.page.waitForTimeout(650);
   expect(e.requests).toHaveLength(0);
@@ -403,7 +403,7 @@ test("settings changes cancel page work while further requests are being queued"
   await e.configure("click");
   await e.control("start");
   await expect.poll(() => e.requests.length).toBeGreaterThan(0);
-  await e.settings({ targetLanguage: "日本語" });
+  await e.settings({ featurePreferences: { ...DEFAULT_SETTINGS.featurePreferences, page: { ...DEFAULT_SETTINGS.featurePreferences.page, targetLanguage: "日本語" } } });
   await expect.poll(async () => (await e.pageStatus()).state).toBe("paused");
   await expect.poll(() => e.requests.every(r => r.aborted)).toBe(true);
 });

@@ -86,7 +86,7 @@ describe("translation rules and migration", () => {
     expect(read.modelProfiles[0]?.id).toBe(profile.id);
     expect(read.modelProfiles[0]?.kind).toBe("machine");
     expect(read.apiKey).toBe("secret-value");
-    expect(read.schemaVersion).toBe(2);
+    expect(read.schemaVersion).toBe(3);
     expect(read.bidirectional).toBe(false);
   });
   it("isolates page and selection cache capacity and honors pre-commit cancellation", async () => {

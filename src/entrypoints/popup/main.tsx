@@ -1,14 +1,15 @@
 import { useSaveFeedback } from "../../shared/useSaveFeedback";
-import { selectFeatureService } from "../../shared/service-selection";
+import { selectFeatureService, updateFeaturePreferences } from "../../shared/service-selection";
 import { FeatureServiceSelect } from "../../shared/FeatureServiceSelect";
 import { usePrivacyNotice, confirmPrivacyConsent } from "../../shared/privacy-notices";
 import { LanguageDirection } from "../../shared/LanguageDirection";
 import { PageControls } from "./PageControls";
 import { capabilitiesForFeature } from "../../core/services/capabilities";
+import { featurePreferencesPatch, settingsForFeature } from "../../core/translation/model-routing";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { getSettings, patchSettings, watchSettings } from "../../shared/settings";
-import type { TranslatorSettings, TranslationFeature } from "../../shared/types";
+import type { FeatureTranslationPreferences, TranslatorSettings, TranslationFeature } from "../../shared/types";
 import { DEFAULT_SETTINGS, TRANSLATION_SCENES } from "../../shared/types";
 import "./style.css";
 
@@ -49,6 +50,10 @@ function App() {
       catch (error) { try { setSettings(await getSettings()); } catch { /* Keep the visible draft for retry. */ } throw error; }
     });
   }
+  async function updateSelectionPreferences(patch: Partial<FeatureTranslationPreferences>) {
+    setSettings(current => ({ ...current, ...featurePreferencesPatch(current, "selection", patch) }));
+    await save(async () => setSettings(await updateFeaturePreferences("selection", patch)));
+  }
 
   function openSettings() {
     browser.tabs.create({ url: browser.runtime.getURL("/options.html") });
@@ -62,16 +67,17 @@ function App() {
 
   const en = settings.uiLanguage === "en";
   const t = (zh: string, english: string) => en ? english : zh;
+  const selectionSettings = settingsForFeature(settings, "selection");
 
   return <main className="popup">
     <header><span className="mark">译</span><div><h1>{t("流译助手", "Flow Translate")}</h1><p>{saving ? t("正在保存…", "Saving…") : saveNotice?.text || t("快速选择翻译参数", "Quick translation settings")}</p></div></header>
     {privacyNotice.accepted === false && <section className="consent"><strong>{t("翻译前请确认", "Before translating")}</strong><p>{t("你选择、输入或通过全文翻译提交的文字将发送到当前服务；自动全文模式会在进入符合规则的页面时发送正文。请勿发送密码、支付、医疗等敏感信息。历史记录默认关闭。", "Selected, entered or page-translation text is sent to your configured service. Automatic page mode sends readable text when entering eligible pages. Do not send passwords, payment, health, or other sensitive data. History is off by default.")}</p><button disabled={!ready || confirmingPrivacy} onClick={confirmPrivacy}>{t("了解并同意", "Understand and agree")}</button></section>}
     {privacyError && <p role="alert">{privacyError}</p>}
-    <LanguageDirection settings={settings} update={update} disabled={!ready || saving} />
+    <LanguageDirection settings={selectionSettings} update={updateSelectionPreferences} disabled={!ready || saving} />
     <FeatureServiceSelect settings={settings} feature="selection" label={t("翻译服务", "Translation service")} disabled={!ready || saving} onChange={id => { void update({}, "selection", id); }} />
     <p className="ft-help">{settings.separateModels ? t("切换仅修改划词翻译的服务。", "Switching changes only the selection service.") : t("所有翻译功能共用此默认服务。", "All translation features share this default service.")}</p>
     {capabilitiesForFeature(settings, "selection").richOutput ? <label>{t("翻译场景", "Scene")}
-      <select disabled={!ready || saving} value={settings.translationScene} onChange={(event) => update({ translationScene: event.target.value as TranslatorSettings["translationScene"] })}>
+      <select disabled={!ready || saving} value={selectionSettings.translationScene} onChange={(event) => updateSelectionPreferences({ translationScene: event.target.value as TranslatorSettings["translationScene"] })}>
         {TRANSLATION_SCENES.map((scene) => <option key={scene.id} value={scene.id}>{en ? ({ general: "General", technical: "Technical", academic: "Academic", business: "Business" }[scene.id]) : scene.name}</option>)}
       </select>
     </label> : <p className="ft-help">{t("当前划词服务仅支持纯翻译。", "The selection service supports translation only.")}</p>}

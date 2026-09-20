@@ -1,4 +1,3 @@
-import { forWebsite } from "../shared/reading-settings";
 import { installPageTranslation } from "../content/page-translation/controller";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -205,7 +204,7 @@ function App() {
 
   useEffect(() => {
     const settingsPort = browser.runtime.connect({ name: "public-settings" });
-    settingsPort.onMessage.addListener((value: PublicTranslatorSettings) => { setSettings(forWebsite(value, location.href)); setSitePaused(Boolean(value.paused)); });
+    settingsPort.onMessage.addListener((value: PublicTranslatorSettings) => { setSettings(value); setSitePaused(Boolean(value.paused)); });
     return () => settingsPort.disconnect();
   }, []);
 

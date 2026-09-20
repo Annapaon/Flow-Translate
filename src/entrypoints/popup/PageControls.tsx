@@ -2,6 +2,7 @@ import { pageStateLabel } from "../../shared/page-state";
 import { FeatureServiceSelect } from "../../shared/FeatureServiceSelect";
 import { forWebsite, websiteRuleFor } from "../../shared/reading-settings";
 import { PageTranslationPreferences } from "../../shared/PageTranslationPreferences";
+import { settingsForFeature } from "../../core/translation/model-routing";
 import type { TranslatorSettings } from "../../shared/types";
 import React from "react";
 import { usePageSession } from "./usePageSession";
@@ -18,7 +19,7 @@ export function PageControls({ settings, update, saving, onServiceChange }: {
 }) {
   const en = settings.uiLanguage === "en";
   const { tab, pageUrl, status, site, error, setError, command: sendCommand, pause } = usePageSession(en, settings.pageTranslationEnabled);
-  const effective = forWebsite(settings, pageUrl);
+  const effective = forWebsite(settingsForFeature(settings, "page"), pageUrl);
   const rule = websiteRuleFor(settings.siteRules, pageUrl);
   const t = (zh: string, english: string) => en ? english : zh;
   async function command(action: string) {

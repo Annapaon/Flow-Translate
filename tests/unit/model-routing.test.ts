@@ -15,6 +15,16 @@ describe("feature model assignments", () => {
     expect(read.separateModels).toBe(false);
     expect(read.featureModels).toEqual({ selection: "", page: "", longText: "" });
   });
+  it("migrates shared translation preferences and then keeps feature choices independent", async () => {
+    await saveSettings({ ...DEFAULT_SETTINGS, schemaVersion: 2, targetLanguage: "日本語", translationScene: "academic", outputMode: "grammar", smartOutput: true });
+    const migrated = await getSettings();
+    for (const feature of ["selection", "page", "longText"] as const) {
+      expect(migrated.featurePreferences[feature]).toMatchObject({ targetLanguage: "日本語", translationScene: "academic", outputMode: "grammar", smartOutput: true });
+    }
+    const independent = { ...migrated, featurePreferences: { ...migrated.featurePreferences, page: { ...migrated.featurePreferences.page, targetLanguage: "English", translationScene: "technical" } } };
+    expect(settingsForFeature(independent, "selection")).toMatchObject({ targetLanguage: "日本語", translationScene: "academic" });
+    expect(settingsForFeature(independent, "page")).toMatchObject({ targetLanguage: "English", translationScene: "technical" });
+  });
   it("resolves complete provider settings and leaves the default unchanged", () => {
     const routed = settingsForFeature(settings, "page");
     expect(routed).toMatchObject({ activeModelId: profile.id, apiKey: profile.apiKey, model: profile.model, provider: profile.provider, customHeaders: profile.customHeaders });
@@ -44,6 +54,7 @@ describe("feature model assignments", () => {
   it("keeps a running page plan on routing edits while detecting provider and privacy changes", () => {
     const baseline = pageSettingsFingerprint(settings);
     expect(pageSettingsFingerprint({ ...settings, separateModels: false, featureModels: { selection: profile.id, page: "", longText: "" } })).toBe(baseline);
+    expect(pageSettingsFingerprint({ ...settings, activeModelId: profile.id, provider: profile.provider, apiBaseUrl: profile.apiBaseUrl, apiKey: profile.apiKey, model: profile.model })).toBe(baseline);
     expect(pageSettingsFingerprint({ ...settings, privacyConsentAccepted: true })).not.toBe(baseline);
     expect(pageSettingsFingerprint({ ...settings, modelProfiles: [{ ...profile, apiKey: "changed" }] })).not.toBe(baseline);
   });

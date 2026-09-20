@@ -224,23 +224,28 @@ test("machine defaults do not lock saved LLM preferences and export controls sta
   const options = await e.options();
   for (const provider of ["baidu", "google", "microsoft"] as const) {
     await e.machine(provider);
-    await e.settings({ smartOutput: false, outputMode: "translation", translationScene: "general", pageTranslationEnabled: true, pageTranslationMode: "manual" });
+    await options.evaluate(async () => {
+      const api = (globalThis as any).chrome;
+      const { translatorSettings: s } = await api.storage.local.get("translatorSettings");
+      await api.storage.local.set({ translatorSettings: { ...s, featurePreferences: { ...s.featurePreferences, selection: { ...s.featurePreferences.selection, smartOutput: true, outputMode: "grammar", translationScene: "academic" } } } });
+    });
+    await e.settings({ pageTranslationEnabled: true, pageTranslationMode: "manual" });
     await options.reload();
     await options.getByRole("button", { name: /Languages and behavior/ }).click();
     await expect(options.getByRole("switch", { name: "Smart output", exact: true })).toBeHidden();
-    await options.locator(".llm-preferences > summary").click();
-    await options.getByRole("switch", { name: "Smart output", exact: true }).check();
-    await options.getByRole("combobox", { name: "Output mode", exact: true }).selectOption("grammar");
     await expect.poll(() => options.evaluate(async () => {
       const { translatorSettings: s } = await (globalThis as any).chrome.storage.local.get("translatorSettings");
-      return [s.smartOutput, s.outputMode];
-    })).toEqual([true, "grammar"]);
+      return [s.featurePreferences.selection.smartOutput, s.featurePreferences.selection.outputMode, s.featurePreferences.selection.translationScene];
+    })).toEqual([true, "grammar", "academic"]);
+    await options.getByRole("button", { name: /Page mode and appearance/ }).click();
     await expect(options.getByRole("button", { name: "Change shortcut", exact: true })).toBeVisible();
     await options.reload();
     await options.getByRole("button", { name: /Languages and behavior/ }).click();
-    await options.locator(".llm-preferences > summary").click();
-    await expect(options.getByRole("switch", { name: "Smart output", exact: true })).toBeChecked();
-    await expect(options.getByRole("combobox", { name: "Output mode", exact: true })).toHaveValue("grammar");
+    await expect(options.getByRole("switch", { name: "Smart output", exact: true })).toBeHidden();
+    await expect.poll(() => options.evaluate(async () => {
+      const { translatorSettings: s } = await (globalThis as any).chrome.storage.local.get("translatorSettings");
+      return [s.featurePreferences.selection.smartOutput, s.featurePreferences.selection.outputMode];
+    })).toEqual([true, "grammar"]);
     const popup = await e.options();
     await popup.goto(popup.url().replace("options.html", "popup.html"));
     await expect(popup.getByRole("combobox", { name: "Scene", exact: true })).toHaveCount(0);
@@ -266,12 +271,13 @@ test("capability visibility follows feature bindings and preserves hidden prefer
     const { translatorSettings: s } = await api.storage.local.get("translatorSettings");
     const llm = { ...s.modelProfiles[0], id: "llm", name: "LLM" };
     const machine = { ...llm, id: "machine", name: "Machine", provider: "baidu", model: "", appId: "app" };
-    await api.storage.local.set({ translatorSettings: { ...s, modelProfiles: [llm, machine], activeModelId: "machine", separateModels: true, featureModels: { selection: "llm", longText: "machine", page: "machine" }, smartOutput: true, outputMode: "grammar", translationScene: "academic" } });
+    const featurePreferences = Object.fromEntries(Object.entries(s.featurePreferences).map(([feature, value]: any) => [feature, { ...value, smartOutput: true, outputMode: "grammar", translationScene: "academic" }]));
+    await api.storage.local.set({ translatorSettings: { ...s, modelProfiles: [llm, machine], activeModelId: "machine", separateModels: true, featureModels: { selection: "llm", longText: "machine", page: "machine" }, smartOutput: true, outputMode: "grammar", translationScene: "academic", featurePreferences } });
   });
   await options.reload();
   await options.getByRole("button", { name: /Languages and behavior/ }).click();
   await expect(options.getByRole("combobox", { name: "Output mode", exact: true })).toHaveValue("grammar");
-  await expect(options.locator(".llm-preferences .standalone-notice")).toHaveCount(0);
+  await expect(options.locator(".feature-group .standalone-notice")).toHaveCount(0);
   const popup = await e.options();
   await popup.goto(popup.url().replace("options.html", "popup.html"));
   await expect(popup.getByRole("combobox", { name: "Scene", exact: true })).toHaveValue("academic");
@@ -285,7 +291,7 @@ test("capability visibility follows feature bindings and preserves hidden prefer
   await expect(popup.getByRole("combobox", { name: "Scene", exact: true })).toHaveCount(0);
   await options.reload();
   await options.getByRole("button", { name: /Languages and behavior/ }).click();
-  await expect(options.locator(".llm-preferences .standalone-notice")).toHaveCount(0);
+  await expect(options.locator(".feature-group .standalone-notice")).toHaveCount(1);
   await expect(options.getByRole("combobox", { name: "Output mode", exact: true })).toHaveCount(0);
   await expect(options.getByRole("switch", { name: "Smart output", exact: true })).toHaveCount(0);
   await expect(options.getByRole("combobox", { name: "Reasoning", exact: true })).toHaveCount(0);

@@ -109,10 +109,7 @@ test("reading settings persist rules and appearance using existing controls", as
 }) => {
   await e.configure("click");
   const options = await e.options();
-  await options
-    .getByRole("button", { name: /Translation/ })
-    .first()
-    .click();
+  await options.getByRole("button", { name: /Page mode and appearance/ }).click();
   await options.getByText("Translation appearance", { exact: true }).click();
   await options
     .getByRole("combobox", { name: "Relative font size", exact: true })
@@ -153,10 +150,7 @@ test("reading settings persist rules and appearance using existing controls", as
     )
     .toBe("news.example.com");
   await options.reload();
-  await options
-    .getByRole("button", { name: /Translation/ })
-    .first()
-    .click();
+  await options.getByRole("button", { name: /Page mode and appearance/ }).click();
   await options.getByText("Translation appearance", { exact: true }).click();
   await expect(
     options.getByRole("combobox", { name: "Relative font size", exact: true })

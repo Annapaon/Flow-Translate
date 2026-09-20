@@ -517,7 +517,7 @@ export function installPageTranslation() {
   const settingsPort = browser.runtime.connect({ name: "public-settings" });
   settingsPort.onMessage.addListener((next: PublicTranslatorSettings) => {
     const previous = settings;
-    settings = forWebsite(next, location.href);
+    settings = forWebsite({ ...next, ...next.featurePreferences?.page }, location.href);
     next = settings;
     updateStyle();
     if (!eligible()) { clearTimeout(autoTimer); restore(); return; }

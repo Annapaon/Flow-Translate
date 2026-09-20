@@ -1,7 +1,7 @@
 import { ModelCards } from "./components/ModelCards";
 import { PromptSettings } from "./components/PromptSettings";
 import { ShortcutStatus } from "./components/ShortcutStatus";
-import { TranslationSettings } from "./components/TranslationSettings";
+import { FeatureTranslationSettings } from "./components/FeatureTranslationSettings";
 import { usePrivacyNotice, confirmPrivacyConsent, resetPrivacyNotices } from "../../shared/privacy-notices";
 import { requestApiPermissions } from "../../shared/api-permissions";
 import { Toggle } from "../../shared/LanguageDirection";
@@ -57,7 +57,7 @@ function App() {
   const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
   const [profileTestMessages, setProfileTestMessages] = useState<Record<string, { text: string; kind: "success" | "error"; code?: string }>>({});
   const profileTestTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const [activeSection, setActiveSection] = useState<"basic" | "translation" | "prompts" | "models" | "history" | "data">("basic");
+  const [activeSection, setActiveSection] = useState<"basic" | "selection" | "page" | "longText" | "prompts" | "models" | "history" | "data">("basic");
   const [editingProfile, setEditingProfile] = useState<ModelProfile | null>(null);
   const [headersDraft, setHeadersDraft] = useState("");
   const [modalMessage, setModalMessage] = useState<{ text: string; kind: "success" | "error" } | null>(null);
@@ -232,6 +232,12 @@ function App() {
     const next = { ...form, [key]: value };
     setForm(next);
     autoSave(next, t("设置已自动保存。", "Settings saved automatically."));
+  }
+  function patchForm(changes: Partial<TranslatorSettings>) {
+    if (changes.triggerMode === "auto" && form.triggerMode !== "auto" && !window.confirm(t("自动翻译会在选择文字后立即发送到模型服务。确定开启吗？", "Auto translation immediately sends selected text to the model service. Enable it?"))) return;
+    const next = { ...form, ...changes };
+    setForm(next);
+    autoSave(next, t("设置已保存", "Settings saved"));
   }
   function updateScenePrompt(scene: TranslationScene, value: string) {
     const next = { ...form, scenePrompts: { ...form.scenePrompts, [scene]: value } };
@@ -443,11 +449,13 @@ function App() {
     <div className="settings-shell">
       <aside className="settings-nav" aria-label={t("设置菜单", "Settings menu")}>
         <button className={activeSection === "basic" ? "selected" : ""} onClick={() => selectSection("basic")}><span>01</span><div><strong>{t("基本信息", "General")}</strong><small>{t("界面、隐私与网站范围", "Interface, privacy, and sites")}</small></div></button>
-        <button className={activeSection === "translation" ? "selected" : ""} onClick={() => selectSection("translation")}><span>02</span><div><strong>{t("翻译配置", "Translation")}</strong><small>{t("语言与翻译行为", "Languages and behavior")}</small></div></button>
-        <button className={activeSection === "prompts" ? "selected" : ""} onClick={() => selectSection("prompts")}><span>03</span><div><strong>{t("提示词设置", "Prompts")}</strong><small>{t("按场景配置提示词", "Prompts by scene")}</small></div></button>
-        <button className={activeSection === "models" ? "selected" : ""} onClick={() => selectSection("models")}><span>04</span><div><strong>{t("模型服务", "Models")}</strong><small>{t("API 与模型管理", "API and model management")}</small></div></button>
-        <button className={activeSection === "history" ? "selected" : ""} onClick={() => selectSection("history")}><span>05</span><div><strong>{t("翻译历史", "History")}</strong><small>{t("搜索与收藏记录", "Search and favorites")}</small></div></button>
-        <button className={activeSection === "data" ? "selected" : ""} onClick={() => selectSection("data")}><span>06</span><div><strong>{t("配置管理", "Data")}</strong><small>{t("导入与导出设置", "Import and export")}</small></div></button>
+        <button className={activeSection === "selection" ? "selected" : ""} onClick={() => selectSection("selection")}><span>02</span><div><strong>{t("划词翻译", "Selection")}</strong><small>{t("语言与翻译行为", "Languages and behavior")}</small></div></button>
+        <button className={activeSection === "page" ? "selected" : ""} onClick={() => selectSection("page")}><span>03</span><div><strong>{t("全文翻译", "Page translation")}</strong><small>{t("全文模式与显示", "Page mode and appearance")}</small></div></button>
+        <button className={activeSection === "longText" ? "selected" : ""} onClick={() => selectSection("longText")}><span>04</span><div><strong>{t("长文本翻译", "Long text")}</strong><small>{t("侧边栏翻译参数", "Side panel settings")}</small></div></button>
+        <button className={activeSection === "prompts" ? "selected" : ""} onClick={() => selectSection("prompts")}><span>05</span><div><strong>{t("提示词设置", "Prompts")}</strong><small>{t("按场景配置提示词", "Prompts by scene")}</small></div></button>
+        <button className={activeSection === "models" ? "selected" : ""} onClick={() => selectSection("models")}><span>06</span><div><strong>{t("模型服务", "Models")}</strong><small>{t("API 与模型管理", "API and model management")}</small></div></button>
+        <button className={activeSection === "history" ? "selected" : ""} onClick={() => selectSection("history")}><span>07</span><div><strong>{t("翻译历史", "History")}</strong><small>{t("搜索与收藏记录", "Search and favorites")}</small></div></button>
+        <button className={activeSection === "data" ? "selected" : ""} onClick={() => selectSection("data")}><span>08</span><div><strong>{t("配置管理", "Data")}</strong><small>{t("导入与导出设置", "Import and export")}</small></div></button>
       </aside>
       <div className="settings-content">
       {activeSection === "basic" && <section className="card">
@@ -461,30 +469,27 @@ function App() {
           <label className="toggle"><input type="checkbox" checked={form.enableHistory} onChange={(event) => update("enableHistory", event.target.checked)} /><span><strong>{t("保存翻译历史", "Save translation history")}</strong><small>{t("最多保存最近 100 条", "Keep up to 100 recent entries")}</small></span></label>
           <label className="toggle"><input type="checkbox" checked={form.enableCache} onChange={(event) => update("enableCache", event.target.checked)} /><span><strong>{t("启用翻译缓存", "Enable translation cache")}</strong><small>{t("相同请求 7 天内复用", "Reuse identical requests for 7 days")}</small></span></label>
         </div>
+        <div className="model-routing compact-routing">
+          <Toggle label={t("按翻译功能分别设置服务", "Assign services by feature")} checked={form.separateModels} onChange={value => update("separateModels", value)} />
+          <p className="ft-help">{form.separateModels ? t("三个翻译功能可在各自设置页选择不同服务；未指定时跟随默认服务。", "Each translation feature can choose its own service; unassigned features follow the default.") : t("三个翻译功能共用模型服务页面设置的默认服务。", "All three translation features use the default from Model services.")}</p>
+          <p className="model-routing-default">{t("当前默认服务", "Current default service")} · <strong>{form.modelProfiles.find(profile => profile.id === form.activeModelId)?.name}</strong></p>
+        </div>
         <label>{t("网站访问模式", "Site access mode")}<select value={form.siteAccessMode} onChange={(event) => update("siteAccessMode", event.target.value as TranslatorSettings["siteAccessMode"])}><option value="blacklist">{t("除黑名单外全部启用", "Enable except blocked sites")}</option><option value="whitelist">{t("仅在白名单网站启用", "Enable only on allowed sites")}</option></select></label>
         {form.siteAccessMode === "blacklist"
           ? <label>{t("禁用网站", "Blocked sites")}<textarea rows={3} value={form.blockedSites.join("\n")} onChange={(event) => update("blockedSites", event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))} placeholder={"bank.example.com\n*.private.example.com"} /><small>{t("每行一个域名，同时匹配其子域名。已内置常见银行、支付和密码管理器站点，可自行增删。", "One domain per line; subdomains are included. Common banking, payment, and password-manager sites are built in and can be adjusted freely.")}</small></label>
           : <label>{t("允许网站", "Allowed sites")}<textarea rows={3} value={form.allowedSites.join("\n")} onChange={(event) => update("allowedSites", event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))} placeholder={"docs.example.com\n*.company.example.com"} /><small>{t("白名单为空时所有网站均不启用。", "No site is enabled when this list is empty.")}</small></label>}
-        <p className="prompt-footnote">{t("提示词可随时编辑，用于大模型翻译；百度、谷歌和必应等机器翻译服务不会使用这些提示词。", "Prompts can be edited at any time and apply to LLM translation. Machine translation services such as Baidu, Google and Bing do not use them.")}</p>
       </section>}
 
-      {activeSection === "translation" && <TranslationSettings form={form} update={update} patch={patch => { const next = { ...form, ...patch }; setForm(next); autoSave(next, t("设置已保存", "Settings saved")); }} />}
+      {activeSection === "selection" && <FeatureTranslationSettings feature="selection" step="02" form={form} patch={patchForm} />}
+
+      {activeSection === "page" && <FeatureTranslationSettings feature="page" step="03" form={form} patch={patchForm} />}
+
+      {activeSection === "longText" && <FeatureTranslationSettings feature="longText" step="04" form={form} patch={patchForm} />}
 
       {activeSection === "prompts" && <PromptSettings form={form} updateScenePrompt={updateScenePrompt} copyScenePrompt={copyScenePrompt} restoreScenePrompt={restoreScenePrompt} restoreAllScenePrompts={restoreAllScenePrompts} update={update} />}
 
       {activeSection === "models" && <section className="card">
-        <div className="section-head model-head"><div><span className="step">04</span><h2>{t("翻译服务配置", "Translation services")}</h2><p>{t("添加多个云端或本地模型，并在工具栏快速切换。", "Add cloud or local models and switch them from the toolbar.")}</p></div><button type="button" className="add" onClick={addProfile}>＋ {t("添加服务", "Add service")}</button></div>
-        <div className="model-routing">
-          <Toggle label={t("按功能分别设置模型", "Assign models by feature")} checked={form.separateModels} onChange={value => update("separateModels", value)} />
-          <p className="ft-help">{form.separateModels ? t("为不同翻译功能指定模型，未指定的功能继续使用默认模型。修改对后续翻译生效。", "Choose a model for each feature. Unassigned features follow the default. Changes apply to subsequent translations.") : t("所有翻译功能使用默认模型。开启后，可分别指定模型。", "All translation features use the default model. Enable to assign models individually.")}</p>
-          <p className="model-routing-default">{t("当前默认模型", "Current default model")} · <strong>{form.modelProfiles.find(p => p.id === form.activeModelId)?.name}</strong></p>
-          {form.separateModels && <div className="model-routing-fields">
-            {([ ["selection", t("划词翻译", "Selection translation")], ["page", t("全文翻译", "Page translation")], ["longText", t("长文本翻译", "Long text translation")] ] as const).map(([feature, label]) => <label key={feature}>{label}<select value={form.featureModels[feature]} onChange={event => update("featureModels", { ...form.featureModels, [feature]: event.target.value })}>
-              <option value="">{t("跟随默认模型", "Follow default model")} · {form.modelProfiles.find(p => p.id === form.activeModelId)?.name}</option>
-              {form.modelProfiles.filter(p => p.enabled).map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-            </select></label>)}
-          </div>}
-        </div>
+        <div className="section-head model-head"><div><span className="step">06</span><h2>{t("翻译服务配置", "Translation services")}</h2><p>{t("添加和维护可用服务，并设置默认服务；各功能的绑定在对应翻译设置页完成。", "Add and maintain services and choose the default; assign them from each translation feature page.")}</p></div><button type="button" className="add" onClick={addProfile}>＋ {t("添加服务", "Add service")}</button></div>
         <ModelCards form={form} modelUsage={modelUsage} formatCount={formatCount} resetModelUsage={resetModelUsage} profileTestMessages={profileTestMessages} testingIds={testingIds} update={update} testProfile={testProfile} editProfile={editProfile} toggleProfile={toggleProfile} />
         <label className="key-storage-setting">{t("API Key 保存方式", "API key storage mode")}
           <select value={form.keyStorage} onChange={(event) => update("keyStorage", event.target.value as KeyStorageMode)}>
@@ -501,7 +506,7 @@ function App() {
       </section>}
 
       {activeSection === "history" && <section className="card">
-        <div className="section-head history-head"><div><span className="step">05</span><h2>{t("翻译历史", "Translation history")}</h2><p>{t("记录保存在当前浏览器本地，最多保留最近 100 条。", "Entries are stored in this browser, up to 100 recent items.")}</p></div><button type="button" className="danger-action" disabled={!history.length} onClick={clearAllHistory}>{t("清空历史", "Clear history")}</button></div>
+        <div className="section-head history-head"><div><span className="step">07</span><h2>{t("翻译历史", "Translation history")}</h2><p>{t("记录保存在当前浏览器本地，最多保留最近 100 条。", "Entries are stored in this browser, up to 100 recent items.")}</p></div><button type="button" className="danger-action" disabled={!history.length} onClick={clearAllHistory}>{t("清空历史", "Clear history")}</button></div>
         <div className="history-tools">
           <input aria-label={t("搜索翻译历史", "Search translation history")} value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("搜索原文、译文、模型或网页标题", "Search source, translation, model, or page title")} />
           <label className="favorite-filter"><input type="checkbox" checked={favoritesOnly} onChange={(event) => setFavoritesOnly(event.target.checked)} />{t("只看收藏", "Favorites only")}</label>
@@ -517,7 +522,7 @@ function App() {
       </section>}
 
       {activeSection === "data" && <section className="card">
-        <div className="section-head"><div><span className="step">06</span><h2>{t("配置管理", "Configuration management")}</h2><p>{t("在浏览器或设备之间迁移翻译设置和模型服务。", "Move translation settings and model providers between browsers or devices.")}</p></div></div>
+        <div className="section-head"><div><span className="step">08</span><h2>{t("配置管理", "Configuration management")}</h2><p>{t("在浏览器或设备之间迁移翻译设置和模型服务。", "Move translation settings and model providers between browsers or devices.")}</p></div></div>
         <div className="data-actions">
           <article><div><strong>{t("导出安全配置", "Export safe configuration")}</strong><p>{t("默认不导出 API Key 和自定义请求头；含密钥导出为完整备份，始终包含网站规则。", "API keys and custom headers are excluded by default; the with-secrets export is a full backup and always includes website rules.")}</p><Toggle label={t("导出包含网站规则", "Include website rules in export")} checked={includeWebsiteRules} onChange={setIncludeWebsiteRules} /></div><span className="export-buttons"><button type="button" onClick={() => exportConfiguration(false)}>{t("导出（不含密钥）", "Export without secrets")}</button><button type="button" onClick={() => exportConfiguration(true)}>{t("导出（包含密钥）", "Export with secrets")}</button></span></article>
           <article><div><strong>{t("导入完整配置", "Import full configuration")}</strong><p>{t("选择 JSON 文件后点击“导入并启用”，一次性申请已启用模型的接口权限并覆盖当前配置。", "Choose a JSON file, then Import and enable to grant endpoint access for enabled models and replace the current configuration.")}</p></div><label className="import-button">{t("选择文件", "Choose file")}<input type="file" accept="application/json,.json" disabled={importing} onChange={importConfiguration} /></label></article>

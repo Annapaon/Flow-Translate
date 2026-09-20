@@ -103,14 +103,27 @@ const scenePromptsSchema = z.object({
   academic: z.string().max(20_000), business: z.string().max(20_000)
 }).strict();
 
+const featurePreferencesSchema = z.object({
+  sourceLanguage: z.string().min(1).max(100),
+  targetLanguage: z.string().min(1).max(100),
+  bidirectional: z.boolean(),
+  pairSourceLanguage: z.string().min(1).max(100),
+  pairLanguage: z.string().min(1).max(100),
+  translationScene: z.enum(["general", "technical", "academic", "business"]),
+  smartOutput: z.boolean(),
+  outputMode: z.enum(["translation", "explanation", "vocabulary", "grammar"]),
+  enableThinking: z.boolean()
+}).strict();
+
 const importSchema = z.object({
   translationStyle: translationStyleSchema.optional(),
   siteRules: siteRulesSchema.optional(),
   separateModels: z.boolean().optional(),
   featureModels: z.object({ selection: z.string().max(100).optional(), page: z.string().max(100).optional(), longText: z.string().max(100).optional() }).strict().optional(),
+  featurePreferences: z.object({ selection: featurePreferencesSchema.optional(), page: featurePreferencesSchema.optional(), longText: featurePreferencesSchema.optional() }).strict().optional(),
   pageTranslationEnabled: z.boolean().optional(),
   pageTranslationMode: z.enum(["manual", "auto"]).optional(),
-  schemaVersion: z.number().int().min(1).max(2).optional(),
+  schemaVersion: z.number().int().min(1).max(3).optional(),
   bidirectional: z.boolean().optional(), pairSourceLanguage: z.string().min(1).max(100).optional(), pairLanguage: z.string().min(1).max(100).optional(), smartOutput: z.boolean().optional(),
   terms: z.array(z.object({ source: z.string().max(200), target: z.string().max(300), sourceLanguage: z.string().max(100), targetLanguage: z.string().max(100), preserve: z.boolean() }).strict()).max(100).optional(),
   modelProfiles: z.array(profileSchema).min(1).max(30), activeModelId: z.string().max(100).optional(),
@@ -147,7 +160,8 @@ export function validateImportedSettings(value: unknown, english = false): Parti
     profile.customHeaders = sanitizeHeaders(profile.customHeaders, english);
   }
   // Never trust consent from a file. The import UI preserves local consent or obtains it explicitly.
-  return { ...parsed, privacyConsentAccepted: false } as Partial<TranslatorSettings>;
+  const selection = parsed.featurePreferences?.selection;
+  return { ...(selection ? selection : {}), ...parsed, privacyConsentAccepted: false } as Partial<TranslatorSettings>;
 }
 
 export function redactSensitive(value: string, secrets: string[] = []): string {

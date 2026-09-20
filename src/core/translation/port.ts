@@ -71,7 +71,7 @@ export function attachTranslationPort(port: Port) {
         false,
         true,
       );
-    return forWebsite(current, feature === "longText" ? undefined : port.sender?.url);
+    return current;
   }
   port.onMessage.addListener(async (raw: unknown) => {
     if (disconnected) return;
@@ -129,8 +129,9 @@ export function attachTranslationPort(port: Port) {
       signal.throwIfAborted();
       if (message.type === "page-start") {
         if (!page || snapshot) throw new Error("Invalid page session");
-        settingsFingerprint = pageSettingsFingerprint(settings);
-        settings = settingsForFeature(settings, "page");
+        const pagePreferences = forWebsite({ ...settings, ...settings.featurePreferences.page }, port.sender?.url);
+        settingsFingerprint = pageSettingsFingerprint(pagePreferences);
+        settings = forWebsite(settingsForFeature(settings, "page"), port.sender?.url);
         snapshot = resolveSettings(
           message.text,
           settings,
@@ -439,11 +440,12 @@ export function attachTranslationPort(port: Port) {
   const recheck = async (configurationChanged = false) => {
     try {
       const current = await allowed();
+      const effective = page ? forWebsite({ ...current, ...current.featurePreferences.page }, port.sender?.url) : current;
       if (
         page &&
         snapshot &&
         configurationChanged &&
-        pageSettingsFingerprint(current) !== settingsFingerprint
+        pageSettingsFingerprint(effective) !== settingsFingerprint
       )
         throw new Error(
           "设置已变化，请继续以使用新设置 / Settings changed; resume to apply",

@@ -5,7 +5,8 @@ import { LANGUAGE_NAMES, languageCode } from "../core/translation/language";
 import { storage } from "wxt/utils/storage";
 import { DEFAULT_BLOCKED_SITES } from "./constants";
 import { clearSessionKeys, getSessionKeys, mergeSessionKeys, saveSessionKeys, splitSessionKeys } from "./credentials";
-import { DEFAULT_PUBLIC_SETTINGS, DEFAULT_SCENE_PROMPTS, DEFAULT_SETTINGS, type ModelProfile, type PublicTranslatorSettings, type TranslatorSettings } from "./types";
+import { DEFAULT_FEATURE_PREFERENCES, DEFAULT_PUBLIC_SETTINGS, DEFAULT_SCENE_PROMPTS, DEFAULT_SETTINGS, type FeatureTranslationPreferences, type ModelProfile, type PublicTranslatorSettings, type TranslationFeature, type TranslatorSettings } from "./types";
+import { settingsForFeature } from "../core/translation/model-routing";
 
 export const settingsItem = storage.defineItem<TranslatorSettings>("local:translatorSettings", {
   defaultValue: DEFAULT_SETTINGS
@@ -24,8 +25,9 @@ function clampNumber(value: number | undefined, min: number, max: number, fallba
 const publicSettingsItem = storage.defineItem<PublicTranslatorSettings>("local:publicTranslatorSettings", { defaultValue: DEFAULT_PUBLIC_SETTINGS });
 
 function toPublicSettings(settings: TranslatorSettings): PublicTranslatorSettings {
-  const { privacyConsentAccepted, uiLanguage, targetLanguage, triggerMode, blockedSites, allowedSites, siteAccessMode, minChars, maxChars, model } = settings;
-  return { translationStyle: settings.translationStyle, siteRules: settings.siteRules, pageTranslationEnabled: settings.pageTranslationEnabled, pageTranslationMode: settings.pageTranslationMode, bidirectional: settings.bidirectional, pairSourceLanguage: settings.pairSourceLanguage, pairLanguage: settings.pairLanguage, enableThinking: !isMachine(settings.provider) && settings.enableThinking, services: settings.modelProfiles.filter(p => p.enabled).map(p => ({ id: p.id, name: p.name })), privacyConsentAccepted, uiLanguage, targetLanguage, triggerMode, blockedSites, allowedSites, siteAccessMode, minChars, maxChars, model };
+  const selection = settingsForFeature(settings, "selection");
+  const { privacyConsentAccepted, uiLanguage, targetLanguage, triggerMode, blockedSites, allowedSites, siteAccessMode, minChars, maxChars, model } = selection;
+  return { translationStyle: settings.translationStyle, siteRules: settings.siteRules, featurePreferences: settings.featurePreferences, pageTranslationEnabled: settings.pageTranslationEnabled, pageTranslationMode: settings.pageTranslationMode, bidirectional: selection.bidirectional, pairSourceLanguage: selection.pairSourceLanguage, pairLanguage: selection.pairLanguage, enableThinking: !isMachine(selection.provider) && selection.enableThinking, services: settings.modelProfiles.filter(p => p.enabled).map(p => ({ id: p.id, name: p.name })), privacyConsentAccepted, uiLanguage, targetLanguage, triggerMode, blockedSites, allowedSites, siteAccessMode, minChars, maxChars, model };
 }
 
 async function readSettings(): Promise<TranslatorSettings> {
@@ -198,6 +200,39 @@ function normalizeSettings(settings: TranslatorSettings): TranslatorSettings {
   const pairSourceLanguage = canonical(settings.pairSourceLanguage, "简体中文");
   let pairLanguage = canonical(settings.pairLanguage, "日本語");
   if (pairSourceLanguage === pairLanguage) pairLanguage = pairSourceLanguage === "日本語" ? "简体中文" : "日本語";
+  const migratedPreferences: FeatureTranslationPreferences = {
+    sourceLanguage: languageCode(settings.sourceLanguage) === "auto" ? "自动检测" : canonical(settings.sourceLanguage, "自动检测"),
+    targetLanguage: canonical(settings.targetLanguage, "简体中文"),
+    bidirectional: settings.bidirectional ?? false,
+    pairSourceLanguage,
+    pairLanguage,
+    translationScene: settings.translationScene ?? "general",
+    smartOutput: settings.smartOutput ?? false,
+    outputMode: settings.outputMode ?? "translation",
+    enableThinking: settings.enableThinking ?? false
+  };
+  const featurePreferences = Object.fromEntries(([
+    "selection", "page", "longText"
+  ] as TranslationFeature[]).map(feature => {
+    const raw = settings.schemaVersion >= 3 && feature !== "selection" ? settings.featurePreferences?.[feature] : migratedPreferences;
+    const fallback = DEFAULT_FEATURE_PREFERENCES[feature];
+    const sourceLanguage = languageCode(raw?.sourceLanguage ?? "") === "auto" ? "自动检测" : canonical(raw?.sourceLanguage, fallback.sourceLanguage);
+    const first = canonical(raw?.pairSourceLanguage, fallback.pairSourceLanguage);
+    let second = canonical(raw?.pairLanguage, fallback.pairLanguage);
+    if (first === second) second = first === "日本語" ? "简体中文" : "日本語";
+    return [feature, {
+      sourceLanguage,
+      targetLanguage: canonical(raw?.targetLanguage, fallback.targetLanguage),
+      bidirectional: raw?.bidirectional ?? fallback.bidirectional,
+      pairSourceLanguage: first,
+      pairLanguage: second,
+      translationScene: ["general", "technical", "academic", "business"].includes(raw?.translationScene ?? "") ? raw!.translationScene : fallback.translationScene,
+      smartOutput: raw?.smartOutput ?? fallback.smartOutput,
+      outputMode: ["translation", "explanation", "vocabulary", "grammar"].includes(raw?.outputMode ?? "") ? raw!.outputMode : fallback.outputMode,
+      enableThinking: raw?.enableThinking ?? fallback.enableThinking
+    }];
+  })) as TranslatorSettings["featurePreferences"];
+  const selectionPreferences = featurePreferences.selection;
   return {
     ...settings,
     translationStyle: translationStyleSchema.safeParse(settings.translationStyle).data ?? DEFAULT_TRANSLATION_STYLE,
@@ -212,18 +247,24 @@ function normalizeSettings(settings: TranslatorSettings): TranslatorSettings {
         return true;
       }).slice(0, 100);
     })(),
-    schemaVersion: 2,
+    schemaVersion: 3,
     separateModels: settings.separateModels === true,
     featureModels: Object.fromEntries((["selection", "page", "longText"] as const).map(feature => {
       const id = settings.featureModels?.[feature];
       return [feature, typeof id === "string" && profiles.some(p => p.id === id && p.enabled) ? id : ""];
     })) as TranslatorSettings["featureModels"],
+    featurePreferences,
     pageTranslationEnabled: settings.pageTranslationEnabled ?? true,
     pageTranslationMode: settings.pageTranslationMode === "auto" ? "auto" : "manual",
-    bidirectional: settings.bidirectional ?? false,
-    pairSourceLanguage,
-    pairLanguage,
-    smartOutput: settings.smartOutput ?? false,
+    sourceLanguage: selectionPreferences.sourceLanguage,
+    targetLanguage: selectionPreferences.targetLanguage,
+    bidirectional: selectionPreferences.bidirectional,
+    pairSourceLanguage: selectionPreferences.pairSourceLanguage,
+    pairLanguage: selectionPreferences.pairLanguage,
+    translationScene: selectionPreferences.translationScene,
+    smartOutput: selectionPreferences.smartOutput,
+    outputMode: selectionPreferences.outputMode,
+    enableThinking: selectionPreferences.enableThinking,
     terms: (settings.terms ?? []).slice(0, 100),
     scenePrompts,
     systemPrompt: settings.systemPrompt === legacySystemPrompt ? DEFAULT_SETTINGS.systemPrompt : settings.systemPrompt,

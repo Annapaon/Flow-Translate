@@ -11,7 +11,7 @@ export function PromptSettings({ form, updateScenePrompt, copyScenePrompt, resto
   const en = form.uiLanguage === "en";
   const t = (zh: string, english: string) => en ? english : zh;
   return <section className="card">
-        <div className="section-head"><div><span className="step">03</span><h2>{t("提示词设置", "Prompt settings")}</h2><p>{t("分别配置不同翻译场景的提示词，使用时可在插件弹窗中快速切换。", "Configure prompts for each scene and switch them from the extension popup.")}</p></div><button type="button" className="reset-all" onClick={restoreAllScenePrompts}>{t("全部恢复默认", "Restore all defaults")}</button></div>
+        <div className="section-head"><div><span className="step">05</span><h2>{t("提示词设置", "Prompt settings")}</h2><p>{t("维护可供各翻译功能独立选择的提示词风格。", "Maintain prompt styles that each translation feature can choose independently.")}</p></div><button type="button" className="reset-all" onClick={restoreAllScenePrompts}>{t("全部恢复默认", "Restore all defaults")}</button></div>
         <p className="template-help">{t("支持变量：", "Available variables: ")}<code>{"{{sourceLanguage}}"}</code>、<code>{"{{targetLanguage}}"}</code>、<code>{"{{outputMode}}"}</code>、<code>{"{{scene}}"}</code></p>
         <div className="prompt-list">
           {TRANSLATION_SCENES.map((scene) => <div className="prompt-item" key={scene.id}>
@@ -21,5 +21,6 @@ export function PromptSettings({ form, updateScenePrompt, copyScenePrompt, resto
           </div>)}
         </div>
         <label>{t("基础系统提示词", "Base system prompt")}<textarea rows={4} value={form.systemPrompt} onChange={(event) => update("systemPrompt", event.target.value)} /><small>{t("所有场景都会使用，用于约束翻译任务和安全边界。", "Used for every scene to define the translation task and safety boundary.")}</small></label>
+        <p className="prompt-footnote">{t("提示词可随时编辑，仅用于大模型翻译；百度、谷歌和必应等机器翻译服务不会使用这些提示词。", "Prompts can be edited at any time and apply only to LLM translation. Machine translation services such as Baidu, Google, and Bing do not use them.")}</p>
       </section>;
 }

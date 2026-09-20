@@ -53,6 +53,7 @@ label { display:flex; flex-direction:column; gap:7px; margin-bottom:17px; color:
 .model-advanced input { max-width: 160px; }
 
 .model-routing { margin-bottom: 24px; padding: 20px; border: 1px solid #e8e4f1; border-radius: 14px; background: #faf9ff; }
+.compact-routing { margin: 2px 0 20px; }
 .model-routing .ft-toggle { margin-bottom: 6px; }
 .model-routing-default { margin: 12px 0 0; color: #718096; font-size: 12px; }
 .model-routing-default strong { color: #65558f; font-weight: 600; }
@@ -103,3 +104,11 @@ label { display:flex; flex-direction:column; gap:7px; margin-bottom:17px; color:
 .shortcut-hint { color:#b45309; }
 .shortcut-hint a { color:#92400e; font-weight:700; }
 .llm-preferences > .ft-help { margin-bottom:20px; }
+
+.feature-binding { margin-bottom:20px; padding:18px; border:1px solid #e8e4f1; border-radius:14px; background:#faf9ff; }
+.feature-binding label { margin-bottom:8px; }
+.feature-binding .ft-help { margin:0; }
+.feature-group { margin-top:18px; padding-top:20px; border-top:1px solid #edf0f5; }
+.feature-group h3 { margin:0 0 16px; color:#273449; font-size:15px; }
+.feature-group .reading-preferences { margin-bottom:0; }
+.feature-group .translation-preferences { margin-top:14px; }

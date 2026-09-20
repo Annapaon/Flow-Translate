@@ -10,14 +10,13 @@ test("two settings pages preserve independent edits and feature bindings", async
   });
   await first.reload();
   const second = await e.options();
-  await first.getByRole("button", { name: /Models/ }).click();
-  await second.getByRole("button", { name: /Models/ }).click();
+  await first.getByRole("button", { name: /Languages and behavior/ }).click();
+  await second.getByRole("button", { name: /Page mode and appearance/ }).click();
   await Promise.all([
-    first.getByRole("combobox", { name: "Selection translation", exact: true }).selectOption("other"),
-    second.getByRole("combobox", { name: "Page translation", exact: true }).selectOption("other")
+    first.getByRole("combobox", { name: "Translation service", exact: true }).selectOption("other"),
+    second.getByRole("combobox", { name: "Translation service", exact: true }).selectOption("other")
   ]);
   await expect.poll(() => first.evaluate(async () => (await (globalThis as any).chrome.storage.local.get("translatorSettings")).translatorSettings.featureModels)).toEqual({ selection: "other", page: "other", longText: "" });
-  await first.getByRole("button", { name: /Languages and behavior/ }).click();
   await second.getByRole("button", { name: /Prompts by scene/ }).click();
   await Promise.all([
     first.getByRole("combobox", { name: "Output mode", exact: true }).selectOption("grammar"),
