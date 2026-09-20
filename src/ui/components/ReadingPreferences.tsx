@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { LanguageDirection, Toggle } from "./LanguageDirection";
-import { DEFAULT_TRANSLATION_STYLE, siteRulesSchema } from "./reading-settings";
-import type { SiteRule, TranslatorSettings } from "./types";
+import { DEFAULT_TRANSLATION_STYLE, siteRulesSchema } from "../../shared/reading-settings";
+import type { SiteRule, TranslatorSettings } from "../../shared/types";
 
 export function ReadingPreferences({
   settings: s,

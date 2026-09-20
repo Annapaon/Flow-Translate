@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import type { TranslatorSettings } from "./types";
+import type { TranslatorSettings } from "../../shared/types";
 import { Toggle } from "./LanguageDirection";
 
 export function PageTranslationPreferences({ settings: s, update, onTranslate, translateDisabled = false, modeLocked = false, showShortcutSettings = true, showShortcutStatus = true }: {

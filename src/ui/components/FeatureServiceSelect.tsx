@@ -1,6 +1,6 @@
 import React from "react";
-import type { TranslationFeature, TranslatorSettings } from "./types";
-import { isMachine } from "../core/services/capabilities";
+import type { TranslationFeature, TranslatorSettings } from "../../shared/types";
+import { isMachine } from "../../core/services/capabilities";
 
 export function FeatureServiceSelect({ settings, feature, label, disabled, onChange }: {
   settings: TranslatorSettings;

@@ -1,7 +1,7 @@
 import React from "react";
-import type { TranslatorSettings } from "./types";
-import { LANGUAGE_NAMES } from "../core/translation/language";
-import "./translation-controls.css";
+import type { TranslatorSettings } from "../../shared/types";
+import { LANGUAGE_NAMES } from "../../core/translation/language";
+import "../styles/translation-controls.css";
 
 export function Toggle({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void }) {
   return <label className="ft-toggle"><span>{label}</span><input type="checkbox" role="switch" aria-label={label} checked={checked} disabled={disabled} onChange={e => onChange(e.target.checked)} /><span className="ft-toggle-track" aria-hidden="true" /></label>;

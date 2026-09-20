@@ -3,7 +3,7 @@ import { PromptSettings } from "./components/PromptSettings";
 import { FeatureTranslationSettings } from "./components/FeatureTranslationSettings";
 import { usePrivacyNotice, confirmPrivacyConsent, resetPrivacyNotices } from "../../shared/privacy-notices";
 import { requestApiPermissions } from "../../shared/api-permissions";
-import { Toggle } from "../../shared/LanguageDirection";
+import { Toggle } from "../../ui/components/LanguageDirection";
 import { pausedSites, disabledSites } from "../../shared/site-access";
 import { isMachine } from "../../core/services/capabilities";
 import React, { useEffect, useRef, useState, type ChangeEvent } from "react";

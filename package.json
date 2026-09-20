@@ -51,5 +51,6 @@
   "description": "支持划词、网页全文和长文本翻译的 Chrome/Edge 浏览器扩展",
   "engines": {
     "node": ">=24"
-  }
+  },
+  "license": "MIT"
 }

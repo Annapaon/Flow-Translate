@@ -5,17 +5,18 @@
 - `src/entrypoints/`：WXT 入口及入口专属界面，页面的 HTML、TSX 和 CSS 就近放置。
 - `src/content/`：网页内的全文翻译逻辑。
 - `src/core/`：模型接口、机器翻译服务与翻译流水线。
-- `src/shared/`：跨入口使用的设置、权限、存储、类型和公共组件。
+- `src/shared/`：跨入口使用的设置、权限、存储和类型。
+- `src/ui/components/`、`src/ui/hooks/`、`src/ui/styles/`：跨入口复用的 React 组件、Hook 和样式。单个页面使用的组件仍放在该页面的 `components/` 目录。
 - `src/public/`：直接复制到扩展安装包的资源，不放设计源文件或私有配置。
 - `tests/unit/`、`tests/e2e/`：单元测试和浏览器测试；公共单元测试初始化保留在 `tests/setup.ts`。
-- `docs/design/`、`docs/releases/`、`docs/archive/`、`docs/publishing/`：规划、版本记录、检查报告和商店材料；`docs/assets/` 保存设计源素材。
+- `docs/`：当前版本的使用、维护、许可、发布和隐私文档；规划、历史记录、评审和设计源素材留在被忽略的 `.local/docs/`。
 - `scripts/`：构建辅助脚本；根目录保留包管理、构建、测试和风格配置。
 
-WXT 通过 `srcDir: "src"` 和 `publicDir: "src/public"` 定位源码与资源。产物位置仍是 `.output/chrome-mv3/`，已安装开发版本的加载路径无需修改。新增单元测试放在 `tests/unit/`；修改目录时需同步相对导入、配置和文档链接。目录整理保留现有业务模块划分，未拆分页面内部实现。
+WXT 通过 `srcDir: "src"` 和 `publicDir: "src/public"` 定位源码与资源。产物位置仍是 `.output/chrome-mv3/`，已安装开发版本的加载路径无需修改。新增单元测试放在 `tests/unit/`；修改目录时需同步相对导入、配置和文档链接。本项目是浏览器扩展，无需另建 `frontend/` 包；页面入口就近维护，共享界面代码集中在 `src/ui/`，业务逻辑继续按 `core/`、`content/` 和 `shared/` 划分。
 
 ## 开发与检查
 
-项目使用 npm 和已提交的 `package-lock.json` 锁定依赖，首次安装或拉取依赖更新后执行 `npm ci`。不要混用其他包管理器的锁文件。当前 ESLint 要求 Node.js `^20.19.0 || ^22.13.0 || >=24`，其他依赖也可能有最低版本要求；建议使用 Node.js 24。本次检查环境为 Node.js 26.5.0、npm 11.17.0。
+项目使用 npm 和已提交的 `package-lock.json` 锁定依赖，首次安装或拉取依赖更新后执行 `npm ci`。不要混用其他包管理器的锁文件。使用 Node.js 24 或满足 `package.json` 要求的更新版本。
 
 ```bash
 npm ci
@@ -39,6 +40,7 @@ npm run test:e2e
 - 环境与凭据：`.env` 和 `.env.*`、私钥及证书容器、根目录 `secrets/` 和 `credentials/`；允许提交不含真实凭据的 `.env.example`、`.env.*.example`。
 - 用户导出配置：任意目录中的 `translator-settings*.json`，包括放在 `docs/` 下的导出文件。此类文件可能包含 API Key、自定义请求头和私人服务地址。需要共享导入测试样例时，先脱敏，再以其他文件名放入 `tests/fixtures/`。
 - 测试与本地状态：覆盖率、Playwright 报告、失败截图/trace、认证状态和缓存；端到端浏览器配置目前在系统临时目录创建并清理。
+- 本地维护资料：`.local/`，以及防止重新加入的 `docs/archive/`、`docs/design/`、`docs/assets/`。
 - 日志、临时文件、个人 IDE 设置和系统元数据。若后续需要共享 VS Code 配置，应明确放行具体文件，再提交经过检查的配置。
 
 不要笼统屏蔽所有 JSON、图片或 Markdown，这些格式包含本项目的源码配置、图标和发布文档。`.env` 文件不会因为允许本地保存就自动被应用读取；不要通过前端构建环境变量注入真实 API Key。
@@ -52,7 +54,7 @@ git diff --check
 git diff --cached
 ```
 
-第二条命令用于发现“已被跟踪但符合忽略规则”的文件。本次整理检查未发现此类文件。如果以后出现，应确认文件性质后用 `git rm --cached -- 路径` 停止跟踪并保留本地文件；真实密钥已经泄漏时还需要撤销或轮换密钥，单独添加忽略规则不能解决历史泄漏。
+第二条命令用于发现“已被跟踪但符合忽略规则”的文件。如果以后出现，应确认文件性质后用 `git rm --cached -- 路径` 停止跟踪并保留本地文件；真实密钥已经泄漏时还需要撤销或轮换密钥，单独添加忽略规则不能解决历史泄漏。
 
 ## 代码风格
 
@@ -64,37 +66,21 @@ npm run format:check
 npm run format
 ```
 
-存量文件尚未进行全仓格式化，`format:check` 可能报告历史样式差异，因此暂未加入 `check`。本次仅补齐工具配置，不将全仓风格变更混入功能改动。
+存量文件尚未进行全仓格式化，`format:check` 可能报告历史样式差异，因此暂未加入 `check`。全仓格式化应单独提交，避免与功能或目录调整混合。
 
 ESLint 使用 JS/TypeScript 推荐规则与 React Hooks 调用规则；显式 `any` 暂时兼容既有浏览器模拟和服务载荷代码，未使用变量作为警告，解构排除字段和下划线前缀按约定处理。空 `catch` 允许用于端口关闭等容错场景；Playwright fixture 的空参数解构单独放行。TypeScript/WXT 负责项目类型与全局名称检查。现有类型检查配置不包含测试文件，测试文件由 ESLint 和测试执行覆盖，不等同于完整的测试类型检查。
 
-## 基础工程配置验证（2026-09-14）
+## 阅读体验模块
 
-- Git 忽略规则：19 个应排除路径与 12 个应保留路径校验通过；没有已跟踪文件命中忽略规则。
-- `npm run lint`：0 错误、7 条现有 React Hooks 依赖及失效禁用注释警告，待逐项核对实际行为后处理。
-- `npm run typecheck`：通过；`npm test`：7 个测试文件、89 项测试通过。
-- `npm run format:check`：报告 65 个存量文件的格式差异，未执行全仓重写。
-- 此轮基础配置调整未运行浏览器端到端测试，也未重新生成发布包；后续目录整理验证另记如下。
+`src/shared/reading-settings.ts` 管理样式和网站规则；`src/ui/components/ReadingPreferences.tsx` 提供设置界面；`src/content/page-translation/region.ts` 管理区域选择；`src/core/translation/page-preflight.ts` 管理本地语言预判；`src/core/providers/diagnostics.ts` 管理连接诊断。
 
-## 目录整理验证（2026-09-14）
+相关回归见 `tests/unit/reading-features.test.ts` 和 `tests/e2e/reading-features.spec.ts`。
 
-- 源码统一迁入 `src/`，单元测试迁入 `tests/unit/`；同步调整 WXT、Vitest、模块导入、隐私政策生成脚本和文档路径。
-- 类型检查通过，89 项单元测试与 40 项浏览器端到端测试全部通过。
-- 生产构建通过，已核对弹窗、设置页、侧边栏入口、图标与 Alt+Q 默认快捷键声明。
-- 源码相对引用、文档本地链接和 Git 差异格式检查通过；ESLint 仍为 0 错误、7 条存量警告。
-- 安装包输出目录与版本保持不变；此次生成了测试使用的构建目录，未重新生成 ZIP 发布包。
-
-## 1.3.10 阅读体验开发
-
-新增 `src/shared/reading-settings.ts` 与 `ReadingPreferences.tsx` 管理样式、网站规则和设置入口；`src/content/page-translation/region.ts` 管理区域选择；`src/core/translation/page-preflight.ts` 管理本地语言预判；`src/core/providers/diagnostics.ts` 管理连接诊断。“换一种表达”相关实现已于 1.3.20 移除。
-
-新增回归见 `tests/unit/reading-features.test.ts` 和 `tests/e2e/reading-features.spec.ts`。本轮 98 项单元测试、50 项浏览器测试通过，ESLint 仍有 7 条存量警告；版本与发布包见 [1.3.10 更新说明](archive/releases/RELEASE_NOTES_1.3.10.md)。
-
-## 1.3.21 配置事务与验收工具
+## 配置事务与验收工具
 
 - `src/shared/settings.ts` 使用同源 Web Locks 串行化设置写入；界面使用 `patchSettings`、`saveSettingsChanges`，服务选择使用 `src/shared/service-selection.ts`。导入和重置仍是显式整份替换。不要在功能页面重新添加“读取全部设置后整份覆盖”的保存逻辑。
 - `settings-changes.ts` 将旧界面的差异合并到最新设置；独立功能绑定、场景提示词和服务卡片字段分别合并，已被另一页面删除的服务不会因旧界面保存而复活。同一字段同时修改采用后保存者覆盖。
-- `options/components/` 分离提示词、翻译配置和模型卡片；`popup/usePageSession.ts` 管理全文状态、页面连接和错误；`useSaveFeedback.ts` 统一保存状态及 4 秒反馈。
+- `options/components/` 分离提示词、翻译配置和模型卡片；`popup/usePageSession.ts` 管理全文状态、页面连接和错误；`src/ui/hooks/useSaveFeedback.ts` 统一保存状态及 4 秒反馈。
 - `page-access.ts` 提供结构化的不可用原因；全文状态查询运行中 700ms、空闲 5s、连接失败 10s，页面隐藏时暂停后续查询。回到页面或获得焦点会主动刷新。
 
 ```bash

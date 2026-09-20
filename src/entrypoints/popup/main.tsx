@@ -1,8 +1,8 @@
-import { useSaveFeedback } from "../../shared/useSaveFeedback";
+import { useSaveFeedback } from "../../ui/hooks/useSaveFeedback";
 import { selectFeatureService, updateFeaturePreferences } from "../../shared/service-selection";
-import { FeatureServiceSelect } from "../../shared/FeatureServiceSelect";
+import { FeatureServiceSelect } from "../../ui/components/FeatureServiceSelect";
 import { usePrivacyNotice, confirmPrivacyConsent } from "../../shared/privacy-notices";
-import { LanguageDirection } from "../../shared/LanguageDirection";
+import { LanguageDirection } from "../../ui/components/LanguageDirection";
 import { PageControls } from "./PageControls";
 import { featurePreferencesPatch, settingsForFeature } from "../../core/translation/model-routing";
 import React, { useEffect, useState } from "react";

@@ -1,6 +1,6 @@
 import { pageStateLabel } from "../../shared/page-state";
 import { forWebsite, websiteRuleFor } from "../../shared/reading-settings";
-import { PageTranslationPreferences } from "../../shared/PageTranslationPreferences";
+import { PageTranslationPreferences } from "../../ui/components/PageTranslationPreferences";
 import { settingsForFeature } from "../../core/translation/model-routing";
 import type { TranslatorSettings } from "../../shared/types";
 import React from "react";

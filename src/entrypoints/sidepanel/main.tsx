@@ -1,4 +1,4 @@
-import { useSaveFeedback } from "../../shared/useSaveFeedback";
+import { useSaveFeedback } from "../../ui/hooks/useSaveFeedback";
 import { selectFeatureService, updateFeaturePreferences } from "../../shared/service-selection";
 import { capabilitiesForFeature } from "../../core/services/capabilities";
 import { featurePreferencesPatch, settingsForFeature } from "../../core/translation/model-routing";

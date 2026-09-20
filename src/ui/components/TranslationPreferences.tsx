@@ -1,6 +1,6 @@
 import React from "react";
-import type { TranslatorSettings, TermEntry } from "./types";
-import { LANGUAGE_NAMES } from "../core/translation/language";
+import type { TranslatorSettings, TermEntry } from "../../shared/types";
+import { LANGUAGE_NAMES } from "../../core/translation/language";
 import { Toggle } from "./LanguageDirection";
 export function TranslationPreferences({ settings: s, update, showSmartOutput = true }: {
   settings: TranslatorSettings;

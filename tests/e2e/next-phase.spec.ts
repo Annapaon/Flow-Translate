@@ -441,6 +441,8 @@ for (const limit of [1, 6]) test(`saved concurrency ${limit} controls actual pag
   await options.getByRole("spinbutton", { name: "Maximum concurrent requests", exact: false }).fill(String(limit));
   if (limit === 6) await options.getByRole("dialog").screenshot({ path: ".output/ui-review/performance-settings.png" });
   await options.getByRole("button", { name: "Save model", exact: true }).click();
+  // Saving is asynchronous; starting early can race the settings-change pause.
+  await expect(options.getByRole("dialog")).toBeHidden();
   await e.page.evaluate(() => {
     document.querySelectorAll("p, #outside, input, textarea").forEach(node => node.remove());
     for (let i = 0; i < 12; i++) {

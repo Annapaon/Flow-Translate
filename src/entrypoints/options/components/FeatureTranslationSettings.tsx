@@ -1,11 +1,11 @@
 import React from "react";
 import { capabilitiesForFeature } from "../../../core/services/capabilities";
 import { featurePreferencesPatch, serviceSelectionPatch, settingsForFeature } from "../../../core/translation/model-routing";
-import { FeatureServiceSelect } from "../../../shared/FeatureServiceSelect";
-import { LanguageDirection, Toggle } from "../../../shared/LanguageDirection";
-import { PageTranslationPreferences } from "../../../shared/PageTranslationPreferences";
-import { ReadingPreferences } from "../../../shared/ReadingPreferences";
-import { TranslationPreferences } from "../../../shared/TranslationPreferences";
+import { FeatureServiceSelect } from "../../../ui/components/FeatureServiceSelect";
+import { LanguageDirection, Toggle } from "../../../ui/components/LanguageDirection";
+import { PageTranslationPreferences } from "../../../ui/components/PageTranslationPreferences";
+import { ReadingPreferences } from "../../../ui/components/ReadingPreferences";
+import { TranslationPreferences } from "../../../ui/components/TranslationPreferences";
 import { type FeatureTranslationPreferences, type TranslationFeature, type TranslatorSettings } from "../../../shared/types";
 import { ShortcutStatus } from "./ShortcutStatus";
 
